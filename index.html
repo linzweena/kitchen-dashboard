@@ -1,0 +1,839 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<meta name="theme-color" content="#0f1115">
+<title>Kitchen Board</title>
+<style>
+:root{
+  --bg:#0f1115; --panel:#171a20; --panel2:#1d2129; --line:#272c36;
+  --text:#eef0f3; --muted:#8b93a1; --faint:#5b6270;
+  --accent:#7cc4ff; --ok:#5fd38d; --warn:#f2b84b; --bad:#ff6b6b;
+  --radius:16px; --gap:14px;
+  font-size:clamp(14px, 1.45vw, 22px);
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
+  font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  -webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;overflow:hidden}
+body{transition:filter 2s ease}
+#app{height:100vh;display:flex;flex-direction:column;padding:var(--gap);gap:var(--gap);transition:transform 3s ease}
+header{display:flex;align-items:flex-end;gap:1.2rem;padding:0 .3rem}
+#clock{font-size:4.2rem;font-weight:300;line-height:.9;letter-spacing:-.02em;font-variant-numeric:tabular-nums;cursor:default}
+#date{font-size:1.5rem;color:var(--muted);padding-bottom:.25rem}
+#status{margin-left:auto;display:flex;gap:.9rem;align-items:center;font-size:.8rem;color:var(--muted);padding-bottom:.35rem;flex-wrap:wrap;justify-content:flex-end}
+.st{display:flex;align-items:center;gap:.35rem;white-space:nowrap}
+.dot{width:.6rem;height:.6rem;border-radius:50%;background:var(--faint)}
+.dot.ok{background:var(--ok)} .dot.warn{background:var(--warn)} .dot.bad{background:var(--bad)}
+#banner{background:#2a2410;color:#f6d98a;border:1px solid #4a3f17;border-radius:12px;padding:.55rem 1rem;font-size:.9rem;display:flex;gap:1rem;align-items:center}
+#banner[hidden]{display:none}
+#banner button{margin-left:auto}
+main{flex:1;min-height:0;display:grid;gap:var(--gap);
+  grid-template-columns:1.35fr 1fr 1fr;grid-template-rows:1fr 1fr;
+  grid-template-areas:"cal meals shop" "cal rem shop"}
+#p-cal{grid-area:cal} #p-meals{grid-area:meals} #p-rem{grid-area:rem} #p-shop{grid-area:shop}
+@media (orientation:portrait){
+  main{grid-template-columns:1fr 1fr;grid-template-rows:1.3fr 1fr 1fr;grid-template-areas:"cal cal" "meals shop" "rem shop"}
+  :root{font-size:clamp(14px,2.3vw,24px)}
+}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.panel h2{margin:0;padding:.75rem 1rem .5rem;font-size:.85rem;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);font-weight:600;display:flex;align-items:center;gap:.5rem}
+.panel h2 .count{margin-left:auto;color:var(--faint);letter-spacing:0}
+.body{flex:1;overflow-y:auto;padding:0 1rem .8rem;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+.empty{color:var(--faint);padding:.6rem 0;font-size:.95rem}
+
+/* calendar */
+.day{margin-top:.5rem}
+.day-h{font-size:.85rem;color:var(--muted);font-weight:600;padding:.35rem 0 .25rem;border-bottom:1px solid var(--line);margin-bottom:.25rem;display:flex}
+.day.today .day-h{color:var(--accent)}
+.day.quiet .day-h{color:var(--faint);font-weight:500}
+.ev{display:flex;gap:.65rem;align-items:baseline;padding:.32rem 0}
+.ev .bar{align-self:stretch;width:4px;border-radius:2px;flex:none}
+.ev .t{flex:none;width:4.4rem;color:var(--muted);font-variant-numeric:tabular-nums;font-size:.9rem}
+.ev .n{flex:1;min-width:0;font-size:1.05rem;line-height:1.25}
+.ev .loc{display:block;color:var(--faint);font-size:.8rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ev.past{opacity:.38}
+.ev.now .t{color:var(--accent);font-weight:600}
+.ev .who{color:var(--faint);font-size:.75rem;margin-left:.4rem}
+
+/* meals */
+.meal{display:flex;gap:.8rem;padding:.42rem 0;border-bottom:1px solid var(--line);align-items:baseline}
+.meal:last-child{border-bottom:0}
+.meal .d{width:2.8rem;flex:none;color:var(--muted);font-size:.85rem;font-weight:600;text-transform:uppercase}
+.meal .m{flex:1;font-size:1.05rem}
+.meal .m.none{color:var(--faint)}
+.meal.today .d,.meal.today .m{color:var(--accent)}
+
+/* tasks */
+.task{display:flex;gap:.75rem;align-items:center;padding:.5rem 0;border-bottom:1px solid var(--line);cursor:pointer}
+.task:last-child{border-bottom:0}
+.box{width:1.35rem;height:1.35rem;border:2px solid var(--faint);border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;font-size:.8rem;color:var(--bg)}
+.task .c{flex:1;min-width:0;font-size:1.05rem;line-height:1.25;overflow-wrap:anywhere}
+.task .due{flex:none;font-size:.8rem;color:var(--muted);text-align:right}
+.task .due.over{color:var(--bad)}
+.task.pdone .box{background:var(--ok);border-color:var(--ok)}
+.task.pdone .box::after{content:"✓"}
+.task.pdone .c{text-decoration:line-through;color:var(--faint)}
+.task.unsynced .c::after{content:" ⟳";color:var(--faint);font-size:.8rem}
+.sec{font-size:.75rem;color:var(--faint);text-transform:uppercase;letter-spacing:.1em;padding:.7rem 0 .1rem}
+#shop-add{display:flex;gap:.5rem;padding:.6rem 1rem .9rem;border-top:1px solid var(--line)}
+#shop-add input{flex:1;min-width:0;background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:10px;padding:.55rem .8rem;font:inherit;-webkit-user-select:text;user-select:text}
+button{background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:.5rem .9rem;font:inherit;font-size:.9rem;cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:#06121d;font-weight:600}
+
+/* night */
+body.night{filter:brightness(.45)}
+body.night .ev.past{opacity:.25}
+
+/* settings */
+#settings{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:10}
+#settings[hidden]{display:none}
+.sheet{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);width:min(920px,94vw);max-height:92vh;display:flex;flex-direction:column;-webkit-user-select:text;user-select:text}
+.sheet header{padding:1rem 1.2rem;border-bottom:1px solid var(--line);align-items:center}
+.sheet header h3{margin:0;font-size:1.2rem;font-weight:600}
+.sheet header .sp{flex:1}
+.sheet .scroll{overflow-y:auto;padding:0 1.2rem 1.2rem}
+.sheet fieldset{border:0;border-top:1px solid var(--line);margin:1rem 0 0;padding:.8rem 0 0;display:grid;grid-template-columns:1fr 1fr;gap:.8rem 1rem}
+.sheet legend{font-weight:600;color:var(--accent);padding:0 .4rem 0 0}
+.sheet label{display:flex;flex-direction:column;gap:.3rem;font-size:.85rem;color:var(--muted)}
+.sheet label.wide{grid-column:1/-1}
+.sheet input,.sheet select,.sheet textarea{background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:8px;padding:.5rem .65rem;font:inherit;font-size:.9rem}
+.sheet textarea{min-height:5.5rem;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.8rem}
+.sheet small{color:var(--faint);font-size:.75rem}
+.sheet .row{grid-column:1/-1;display:flex;gap:.6rem;flex-wrap:wrap;align-items:center}
+.code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:1.4rem;color:var(--accent);letter-spacing:.1em}
+#diag{white-space:pre-wrap;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.75rem;color:var(--muted);grid-column:1/-1;background:var(--panel2);border-radius:8px;padding:.6rem;max-height:12rem;overflow:auto}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div id="clock">--:--</div>
+    <div id="date"></div>
+    <div id="status"></div>
+  </header>
+  <div id="banner" hidden></div>
+  <main>
+    <section class="panel" id="p-cal"><h2>Calendar</h2><div class="body" id="cal-body"></div></section>
+    <section class="panel" id="p-meals"><h2>Meals</h2><div class="body" id="meals-body"></div></section>
+    <section class="panel" id="p-rem"><h2>Reminders <span class="count" id="rem-count"></span></h2><div class="body" id="rem-body"></div></section>
+    <section class="panel" id="p-shop">
+      <h2>Shopping <span class="count" id="shop-count"></span></h2>
+      <div class="body" id="shop-body"></div>
+      <form id="shop-add" autocomplete="off"><input id="shop-input" placeholder="Add item…" enterkeyhint="done"><button class="primary">Add</button></form>
+    </section>
+  </main>
+</div>
+<div id="settings" hidden></div>
+
+<script>
+'use strict';
+/* =====================================================================
+   Kitchen Board — single-page wall display.
+   Data:  Google Calendar API (calendar) + Todoist API v1 (shopping, meals, reminders)
+   Every dataset is cached in localStorage, so the board always renders the
+   last good data, even after a reboot with no network.
+   Settings: long-press the clock for 2 seconds (or open the page with ?settings).
+   ===================================================================== */
+
+const $ = s => document.querySelector(s);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+/* ---------- storage (never throws) ---------- */
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { console.warn('storage', e); return false; } },
+  del(k) { try { localStorage.removeItem(k); } catch (e) {} }
+};
+const K = { cfg:'kb.config', cache:'kb.cache.', queue:'kb.queue', gtoken:'kb.gtoken', log:'kb.log' };
+
+/* ---------- config ---------- */
+const DEFAULTS = {
+  calendarMode: 'apikey',           // 'apikey' (public calendars) | 'oauth' (private, device sign-in)
+  googleApiKey: '', googleClientId: '', googleClientSecret: '',
+  calendars: '',                    // one per line:  calendarId | Label | #colour
+  calendarDays: 7,
+  todoistToken: '',
+  shoppingProject: 'Shopping',
+  mealsProject: 'Meals',
+  remindersFilter: '(overdue | today | next 2 days) & #Reminders',
+  mealDays: 7,
+  refreshMinutes: 5,
+  nightStart: '22:00', nightEnd: '06:30',
+  dayBrightness: '', nightBrightness: '10',   // Fully Kiosk brightness 0–255; blank = leave alone
+  reloadAt: '03:30'
+};
+let cfg = Object.assign({}, DEFAULTS, store.get(K.cfg, {}));
+const PALETTE = ['#7cc4ff','#ff9f7c','#9be08a','#d4a5ff','#ffd36b','#6be0d4','#ff8fc2'];
+
+function parseCalendars() {
+  return String(cfg.calendars || '').split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'))
+    .map((l, i) => { const [id, label, color] = l.split('|').map(s => (s || '').trim());
+      return { id, label: label || '', color: color || PALETTE[i % PALETTE.length] }; });
+}
+const num = (v, d) => { const n = Number(v); return isFinite(n) && n > 0 ? n : d; };
+const refreshMs = () => num(cfg.refreshMinutes, 5) * 60e3;
+
+/* ---------- diagnostics log (kept small, shown in settings) ---------- */
+function log(msg) {
+  const line = new Date().toISOString().slice(5, 19).replace('T', ' ') + '  ' + msg;
+  console.log(line);
+  const l = store.get(K.log, []); l.push(line); store.set(K.log, l.slice(-40));
+}
+window.addEventListener('error', e => log('error: ' + (e.message || e.type)));
+window.addEventListener('unhandledrejection', e => log('rejection: ' + (e.reason && e.reason.message || e.reason)));
+
+/* ---------- dates ---------- */
+const pad = n => String(n).padStart(2, '0');
+const ymd = d => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+const startOfDay = d => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+const addDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+const parseYmd = s => { const [y, m, d] = s.slice(0, 10).split('-').map(Number); return new Date(y, m - 1, d); };
+const fmtTime = d => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+const dayDiff = d => Math.round((startOfDay(d) - startOfDay(new Date())) / 864e5);
+function dayLabel(d) {
+  const n = dayDiff(d);
+  if (n === 0) return 'Today'; if (n === 1) return 'Tomorrow'; if (n === -1) return 'Yesterday';
+  return d.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'short' });
+}
+function ago(t) {
+  const m = Math.round((Date.now() - t) / 60e3);
+  if (m < 1) return 'just now'; if (m < 60) return m + ' min ago';
+  if (m < 1440) return Math.round(m / 60) + ' h ago';
+  return new Date(t).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' });
+}
+const toMin = s => { const m = /^(\d{1,2}):(\d{2})$/.exec(String(s || '').trim()); return m ? +m[1] * 60 + +m[2] : null; };
+/* Todoist due: 'YYYY-MM-DD' (all day) or a datetime (floating or UTC) */
+const dueDate = due => due && due.date ? (due.date.length > 10 ? new Date(due.date) : parseYmd(due.date)) : null;
+const dueHasTime = due => !!(due && due.date && due.date.length > 10);
+
+/* ---------- HTTP with timeout ---------- */
+class HttpError extends Error { constructor(status, body) { super('HTTP ' + status); this.status = status; this.body = body; } }
+async function http(url, opts, timeout) {
+  const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+  const timer = setTimeout(() => ctl && ctl.abort(), timeout || 20000);
+  try {
+    const r = await fetch(url, Object.assign({ cache: 'no-store' }, opts || {}, ctl ? { signal: ctl.signal } : {}));
+    const text = await r.text();
+    let body = null; try { body = text ? JSON.parse(text) : null; } catch (e) { body = text; }
+    if (!r.ok) throw new HttpError(r.status, body);
+    return body;
+  } catch (e) {
+    if (e.name === 'AbortError') throw new Error('timed out');
+    throw e;
+  } finally { clearTimeout(timer); }
+}
+function errMsg(e) {
+  if (!e) return 'unknown error';
+  if (e.status === 401 || e.status === 403) return 'access denied (' + e.status + ') — check key/token';
+  if (e.status === 404) return 'not found (404)';
+  if (e.status === 429) return 'rate limited';
+  if (e.status) return 'server error ' + e.status;
+  if (e instanceof TypeError) return 'network unreachable';
+  return e.message || String(e);
+}
+
+/* =====================================================================
+   Google Calendar
+   ===================================================================== */
+const G_TOKEN_URL = 'https://oauth2.googleapis.com/token';
+const G_SCOPE = 'https://www.googleapis.com/auth/calendar.readonly';
+
+async function googleAuth(force) {
+  if (cfg.calendarMode !== 'oauth') return null;
+  let tok = store.get(K.gtoken, null);
+  if (!tok || !tok.refresh_token) throw new Error('Google not connected — open settings');
+  if (tok.revoked) throw new Error('Google sign-in expired — reconnect in settings');
+  if (force || !tok.access_token || Date.now() > (tok.expires_at || 0) - 120e3) {
+    try {
+      const r = await http(G_TOKEN_URL, { method: 'POST', body: new URLSearchParams({
+        client_id: cfg.googleClientId, client_secret: cfg.googleClientSecret,
+        refresh_token: tok.refresh_token, grant_type: 'refresh_token' }) });
+      tok.access_token = r.access_token; tok.expires_at = Date.now() + (r.expires_in || 3600) * 1000;
+      store.set(K.gtoken, tok);
+    } catch (e) {
+      if (e.body && e.body.error === 'invalid_grant') { tok.revoked = true; store.set(K.gtoken, tok); log('google refresh token revoked'); throw new Error('Google sign-in expired — reconnect in settings'); }
+      throw e;
+    }
+  }
+  return 'Bearer ' + tok.access_token;
+}
+
+async function fetchCalendar(cal, from, to, auth) {
+  const out = []; let pageToken = '';
+  do {
+    const p = new URLSearchParams({ singleEvents: 'true', orderBy: 'startTime', maxResults: '250',
+      timeMin: from.toISOString(), timeMax: to.toISOString() });
+    if (pageToken) p.set('pageToken', pageToken);
+    if (!auth) p.set('key', cfg.googleApiKey);
+    const r = await http('https://www.googleapis.com/calendar/v3/calendars/' + encodeURIComponent(cal.id) + '/events?' + p,
+      auth ? { headers: { Authorization: auth } } : {});
+    (r.items || []).forEach(ev => {
+      if (ev.status === 'cancelled' || !ev.start) return;
+      out.push({ title: ev.summary || '(busy)', allDay: !!ev.start.date,
+        start: ev.start.dateTime || ev.start.date, end: ev.end ? (ev.end.dateTime || ev.end.date) : null,
+        location: ev.location || '' });
+    });
+    pageToken = r.nextPageToken;
+  } while (pageToken);
+  return out;
+}
+
+async function loadCalendar(prev) {
+  const cals = parseCalendars();
+  const from = addDays(startOfDay(new Date()), -1), to = addDays(startOfDay(new Date()), num(cfg.calendarDays, 7) + 1);
+  let auth = await googleAuth(false);
+  const out = { byCal: {}, errors: [] };
+  for (const c of cals) {            // sequential: gentle on quota, and lets a 401 refresh once
+    try { out.byCal[c.id] = await fetchCalendar(c, from, to, auth); }
+    catch (e) {
+      if (e.status === 401 && auth) {
+        try { auth = await googleAuth(true); out.byCal[c.id] = await fetchCalendar(c, from, to, auth); continue; } catch (e2) { e = e2; }
+      }
+      out.errors.push((c.label || c.id) + ': ' + errMsg(e));
+      if (prev && prev.byCal && prev.byCal[c.id]) out.byCal[c.id] = prev.byCal[c.id];   // keep last good copy
+    }
+  }
+  if (cals.length && out.errors.length === cals.length) throw new Error(out.errors.join('; '));
+  return out;
+}
+
+/* Device sign-in ("TVs and limited input devices"): code shown on the tablet, approved on a phone. */
+async function connectGoogle(clientId, clientSecret, box) {
+  box.textContent = 'Requesting code…';
+  try {
+    const r = await http('https://oauth2.googleapis.com/device/code', { method: 'POST',
+      body: new URLSearchParams({ client_id: clientId, scope: G_SCOPE }) });
+    box.innerHTML = 'On your phone open <b>' + esc(r.verification_url || r.verification_uri) + '</b> and enter<br><span class="code">' + esc(r.user_code) + '</span>';
+    let interval = (r.interval || 5) * 1000; const deadline = Date.now() + (r.expires_in || 1800) * 1000;
+    while (Date.now() < deadline && !$('#settings').hidden) {
+      await sleep(interval);
+      try {
+        const t = await http(G_TOKEN_URL, { method: 'POST', body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret,
+          device_code: r.device_code, grant_type: 'urn:ietf:params:oauth:grant-type:device_code' }) });
+        store.set(K.gtoken, { refresh_token: t.refresh_token, access_token: t.access_token, expires_at: Date.now() + t.expires_in * 1000 });
+        box.innerHTML = '<b style="color:var(--ok)">Connected ✓</b> — now press “List my calendars” or Save.';
+        log('google connected');
+        return;
+      } catch (e) {
+        const code = e.body && e.body.error;
+        if (code === 'authorization_pending') continue;
+        if (code === 'slow_down') { interval += 5000; continue; }
+        box.textContent = 'Sign-in failed: ' + (code || errMsg(e)); return;
+      }
+    }
+    box.textContent = 'Code expired — try again.';
+  } catch (e) { box.textContent = 'Could not start sign-in: ' + ((e.body && e.body.error_description) || errMsg(e)); }
+}
+
+/* =====================================================================
+   Todoist (API v1)  — shopping project, meals project, reminders filter
+   ===================================================================== */
+const TD = 'https://api.todoist.com/api/v1';
+const tdHeaders = json => Object.assign({ Authorization: 'Bearer ' + cfg.todoistToken }, json ? { 'Content-Type': 'application/json' } : {});
+
+async function tdList(path, params) {
+  const all = []; let cursor = null, guard = 0;
+  do {
+    const p = new URLSearchParams(params || {}); p.set('limit', '200'); if (cursor) p.set('cursor', cursor);
+    const r = await http(TD + path + '?' + p, { headers: tdHeaders() });
+    const rows = Array.isArray(r) ? r : (r && r.results) || [];
+    all.push.apply(all, rows);
+    cursor = Array.isArray(r) ? null : r && r.next_cursor;
+  } while (cursor && ++guard < 20);
+  return all;
+}
+
+/* Offline write queue: completions and additions survive network loss and reboots. */
+let queue = store.get(K.queue, []);
+const saveQueue = () => store.set(K.queue, queue);
+
+async function flushQueue() {
+  while (queue.length) {
+    const q = queue[0];
+    try {
+      if (q.op === 'close') {
+        await http(TD + '/tasks/' + encodeURIComponent(q.id) + '/close', { method: 'POST', headers: tdHeaders() });
+        const c = state.cache.todoist;       // drop from cache so it can't flash back if the next read fails
+        if (c) ['shopping', 'meals', 'reminders'].forEach(k => { c.data[k] = c.data[k].filter(t => String(t.id) !== String(q.id)); });
+      } else if (q.op === 'add') {
+        await http(TD + '/tasks', { method: 'POST', headers: tdHeaders(true), body: JSON.stringify({ content: q.content, project_id: q.projectId }) });
+      }
+      queue.shift(); saveQueue();
+    } catch (e) {
+      if (e.status === 400 || e.status === 404 || e.status === 410) {   // permanently invalid (e.g. task deleted elsewhere)
+        log('dropping queued ' + q.op + ' (' + e.status + ')'); queue.shift(); saveQueue(); continue;
+      }
+      throw e;                                                          // offline / auth / 5xx: keep and retry later
+    }
+  }
+}
+
+async function loadTodoist() {
+  let flushErr = null;
+  try { await flushQueue(); } catch (e) { flushErr = e; }
+  const projects = await tdList('/projects');
+  const find = name => {
+    if (!String(name || '').trim()) return null;
+    const p = projects.find(p => p.name.trim().toLowerCase() === name.trim().toLowerCase());
+    if (!p) throw new Error('Todoist project “' + name + '” not found');
+    return p.id;
+  };
+  const shopId = find(cfg.shoppingProject), mealId = find(cfg.mealsProject);
+  const [shop, sections, meals, rem] = await Promise.all([
+    shopId ? tdList('/tasks', { project_id: shopId }) : [],
+    shopId ? tdList('/sections', { project_id: shopId }) : [],
+    mealId ? tdList('/tasks', { project_id: mealId }) : [],
+    String(cfg.remindersFilter || '').trim() ? tdList('/tasks/filter', { query: cfg.remindersFilter }) : []
+  ]);
+  const slim = t => ({ id: String(t.id), content: t.content, section: t.section_id || null,
+    order: t.child_order != null ? t.child_order : (t.order || 0), parent: t.parent_id || null,
+    due: t.due ? { date: t.due.date, recurring: !!t.due.is_recurring } : null });
+  if (flushErr) log('todoist sync of queued changes failed: ' + errMsg(flushErr));
+  return { shopId, shopping: shop.map(slim), meals: meals.map(slim), reminders: rem.map(slim),
+    sections: sections.map(s => ({ id: s.id, name: s.name, order: s.section_order || s.order || 0 })),
+    errors: flushErr ? [queue.length + ' change(s) not yet synced'] : [] };
+}
+
+/* =====================================================================
+   State, cache and scheduler
+   ===================================================================== */
+const SOURCES = {
+  calendar: { name: 'Calendar', enabled: () => parseCalendars().length > 0 && (cfg.calendarMode === 'oauth' ? !!cfg.googleClientId : !!cfg.googleApiKey), load: loadCalendar },
+  todoist:  { name: 'Todoist',  enabled: () => !!cfg.todoistToken, load: loadTodoist }
+};
+const state = { cache: {}, status: {}, timers: {}, demo: false, night: null, bootAt: Date.now() };
+
+Object.keys(SOURCES).forEach(k => {
+  state.status[k] = { failures: 0, lastAttempt: 0, lastError: '', running: false, startedAt: 0 };
+  const c = store.get(K.cache + k, null);
+  if (c && c.data && c.at) state.cache[k] = c;
+});
+
+function schedule(key, delay) {
+  clearTimeout(state.timers[key]);
+  state.timers[key] = setTimeout(() => run(key), Math.max(0, delay));
+}
+
+async function run(key) {
+  const src = SOURCES[key], st = state.status[key];
+  if (!src.enabled() || state.demo) return;
+  if (st.running) return;
+  if (typeof navigator.onLine === 'boolean' && !navigator.onLine) {   // don't burn retries while the OS says offline
+    st.lastAttempt = Date.now(); st.lastError = 'offline'; renderStatus(); schedule(key, 60e3); return;
+  }
+  st.running = true; st.startedAt = st.lastAttempt = Date.now();
+  let next = refreshMs();
+  try {
+    const prev = state.cache[key] && state.cache[key].data;
+    const data = await Promise.race([src.load(prev), sleep(90e3).then(() => { throw new Error('refresh took too long'); })]);
+    state.cache[key] = { at: Date.now(), data };
+    if (!store.set(K.cache + key, state.cache[key])) log('could not persist ' + key + ' cache');
+    st.failures = 0; st.lastError = (data.errors || []).join('; ');
+  } catch (e) {
+    st.failures++; st.lastError = errMsg(e);
+    // back off: 30s, 1m, 2m, 4m … capped at the normal refresh interval (min 5 min), with jitter
+    next = Math.min(Math.max(refreshMs(), 5 * 60e3), 30e3 * Math.pow(2, st.failures - 1)) * (0.8 + Math.random() * 0.4);
+    log(key + ' failed (' + st.failures + '): ' + st.lastError);
+  } finally {
+    st.running = false;
+    safeRender(key);
+    renderStatus();
+    schedule(key, next);
+  }
+}
+
+function refreshAll(delay) { Object.keys(SOURCES).forEach(k => schedule(k, delay || 0)); }
+let kickTimer = null;
+function kickTodoist() { clearTimeout(kickTimer); kickTimer = setTimeout(() => schedule('todoist', 0), 2000); }
+
+/* =====================================================================
+   Rendering
+   ===================================================================== */
+function safeRender(key) {
+  const fns = key === 'calendar' ? [renderCalendar] : key === 'todoist' ? [renderTodoist] : [renderCalendar, renderTodoist];
+  fns.forEach(fn => { try { fn(); } catch (e) { log('render ' + fn.name + ': ' + e.message); } });
+}
+const emptyMsg = t => '<div class="empty">' + esc(t) + '</div>';
+
+function renderCalendar() {
+  const el = $('#cal-body');
+  const c = state.cache.calendar;
+  if (!c) { el.innerHTML = emptyMsg(SOURCES.calendar.enabled() || state.demo ? 'Loading calendar…' : 'No calendar set up — long-press the clock.'); return; }
+  const meta = {}; parseCalendars().forEach(x => meta[x.id] = x);
+  const now = new Date(), today = startOfDay(now);
+  const events = [];
+  Object.keys(c.data.byCal || {}).forEach(id => (c.data.byCal[id] || []).forEach(e => {
+    const s = e.allDay ? parseYmd(e.start) : new Date(e.start);
+    let en = e.end ? (e.allDay ? parseYmd(e.end) : new Date(e.end)) : s;
+    if (isNaN(s)) return; if (isNaN(en) || en < s) en = s;
+    events.push(Object.assign({ s, e: en, cal: meta[id] || { color: '#888', label: '' } }, e));
+  }));
+  const multi = parseCalendars().length > 1;
+  let html = '';
+  for (let i = 0; i < num(cfg.calendarDays, 7); i++) {
+    const day = addDays(today, i), next = addDays(today, i + 1);
+    const evs = events.filter(e => e.s < next && (e.e > day || (+e.e === +e.s && e.s >= day)))
+      .sort((a, b) => (b.allDay - a.allDay) || (a.s - b.s) || a.title.localeCompare(b.title));
+    const cls = 'day' + (i === 0 ? ' today' : '') + (!evs.length ? ' quiet' : '');
+    html += '<div class="' + cls + '"><div class="day-h">' + esc(dayLabel(day)) + (i > 1 ? '' : '<span style="margin-left:auto;font-weight:400">' + esc(day.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' })) + '</span>') + '</div>';
+    if (!evs.length && i === 0) html += emptyMsg('Nothing on today');
+    evs.forEach(e => {
+      let t;
+      if (e.allDay) t = (e.e - e.s > 864e5 * 1.5 && dayDiff(e.s) < i) ? 'cont.' : 'All day';
+      else if (e.s < day) t = 'until ' + fmtTime(e.e);
+      else t = fmtTime(e.s);
+      const past = i === 0 && !e.allDay && e.e <= now && +e.e !== +e.s ? ' past' : (i === 0 && !e.allDay && +e.e === +e.s && e.s < now ? ' past' : '');
+      const live = i === 0 && !e.allDay && e.s <= now && e.e > now ? ' now' : '';
+      html += '<div class="ev' + past + live + '"><span class="bar" style="background:' + esc(e.cal.color) + '"></span>' +
+        '<span class="t">' + esc(live ? 'Now' : t) + '</span><span class="n">' + esc(e.title) +
+        (multi && e.cal.label ? '<span class="who">' + esc(e.cal.label) + '</span>' : '') +
+        (e.location ? '<span class="loc">' + esc(e.location) + '</span>' : '') + '</span></div>';
+    });
+    html += '</div>';
+  }
+  el.innerHTML = html;
+}
+
+/* cached Todoist data + local queue overlay = what the family sees */
+function todoView() {
+  const c = state.cache.todoist; if (!c) return null;
+  const closed = new Set(queue.filter(q => q.op === 'close').map(q => String(q.id)));
+  const keep = t => !closed.has(String(t.id));
+  const adds = queue.filter(q => q.op === 'add').map(q => ({ id: q.tempId, content: q.content, section: null, order: 1e9 + q.ts, unsynced: true }));
+  return { shopping: c.data.shopping.filter(keep).concat(adds), meals: c.data.meals.filter(keep),
+    reminders: c.data.reminders.filter(keep), sections: c.data.sections || [], shopId: c.data.shopId };
+}
+
+const pendingDone = new Map();   // id -> timer; 4 s grace period to undo a tap
+function taskHtml(t, dueHtml) {
+  return '<div class="task' + (pendingDone.has(String(t.id)) ? ' pdone' : '') + (t.unsynced ? ' unsynced' : '') + '" data-id="' + esc(t.id) + '">' +
+    '<span class="box"></span><span class="c">' + esc(t.content) + '</span>' + (dueHtml || '') + '</div>';
+}
+
+function renderTodoist() {
+  const v = todoView();
+  const off = !SOURCES.todoist.enabled() && !state.demo;
+  const placeholder = off ? 'Todoist not set up — long-press the clock.' : 'Loading…';
+  $('#shop-add').style.display = v && v.shopId ? '' : 'none';
+
+  /* shopping, grouped by Todoist section (e.g. aisles) */
+  if (!v) { ['#shop-body', '#meals-body', '#rem-body'].forEach(s => $(s).innerHTML = emptyMsg(placeholder)); $('#shop-count').textContent = $('#rem-count').textContent = ''; return; }
+  const secs = v.sections.slice().sort((a, b) => a.order - b.order);
+  const groups = [{ id: null, name: '' }].concat(secs);
+  let sh = '';
+  groups.forEach(g => {
+    const items = v.shopping.filter(t => (t.section || null) === g.id || (g.id === null && t.section && !secs.some(s => s.id === t.section)))
+      .sort((a, b) => a.order - b.order);
+    if (!items.length) return;
+    if (g.name) sh += '<div class="sec">' + esc(g.name) + '</div>';
+    items.forEach(t => sh += taskHtml(t));
+  });
+  $('#shop-body').innerHTML = sh || emptyMsg('List is empty 🎉');
+  $('#shop-count').textContent = v.shopping.length ? v.shopping.length : '';
+
+  /* meals for the next N days */
+  const today = startOfDay(new Date());
+  let mh = '';
+  for (let i = 0; i < num(cfg.mealDays, 7); i++) {
+    const d = addDays(today, i), key = ymd(d);
+    const ms = v.meals.filter(t => t.due && t.due.date.slice(0, 10) === key).sort((a, b) => (dueDate(a.due) - dueDate(b.due)) || a.order - b.order);
+    mh += '<div class="meal' + (i === 0 ? ' today' : '') + '"><span class="d">' + esc(i === 0 ? 'Today' : d.toLocaleDateString([], { weekday: 'short' })) + '</span>' +
+      '<span class="m' + (ms.length ? '' : ' none') + '">' + (ms.length ? ms.map(t => esc(t.content)).join('<br>') : '—') + '</span></div>';
+  }
+  $('#meals-body').innerHTML = mh;
+
+  /* reminders, soonest first */
+  const rem = v.reminders.slice().sort((a, b) => {
+    const da = dueDate(a.due), db = dueDate(b.due);
+    if (!da && !db) return a.order - b.order; if (!da) return 1; if (!db) return -1; return da - db;
+  });
+  const now = new Date();
+  $('#rem-body').innerHTML = rem.length ? rem.map(t => {
+    const d = dueDate(t.due); let label = '', over = false;
+    if (d) {
+      const n = dayDiff(d);
+      over = dueHasTime(t.due) ? d < now : n < 0;
+      label = (n === 0 ? 'Today' : n === 1 ? 'Tomorrow' : n < 0 ? 'Overdue' : d.toLocaleDateString([], { weekday: 'short' })) + (dueHasTime(t.due) ? ' ' + fmtTime(d) : '');
+      if (n < 0) label = 'Overdue · ' + d.toLocaleDateString([], { weekday: 'short', day: 'numeric' });
+    }
+    return taskHtml(t, '<span class="due' + (over ? ' over' : '') + '">' + esc(label) + (t.due && t.due.recurring ? ' ↻' : '') + '</span>');
+  }).join('') : emptyMsg('All clear');
+  $('#rem-count').textContent = rem.length ? rem.length : '';
+}
+
+function renderStatus() {
+  const bits = [];
+  if (navigator.onLine === false) bits.push('<span class="st"><span class="dot bad"></span>Offline</span>');
+  Object.keys(SOURCES).forEach(k => {
+    const src = SOURCES[k]; if (!src.enabled() || state.demo) return;
+    const st = state.status[k], c = state.cache[k];
+    const stale = !c || Date.now() - c.at > refreshMs() * 3 + 60e3;
+    let cls = 'ok', text = src.name;
+    if (!c && st.failures) { cls = 'bad'; text += ' · ' + st.lastError; }
+    else if (st.failures || stale) { cls = 'warn'; text += c ? ' · updated ' + ago(c.at) : ' · loading'; }
+    else if (st.lastError) { cls = 'warn'; }
+    bits.push('<span class="st" title="' + esc(st.lastError) + '"><span class="dot ' + cls + '"></span>' + esc(text) + '</span>');
+  });
+  if (queue.length && !state.demo) bits.push('<span class="st"><span class="dot warn"></span>' + queue.length + ' change' + (queue.length > 1 ? 's' : '') + ' waiting to sync</span>');
+  $('#status').innerHTML = bits.join('');
+}
+
+function renderBanner() {
+  const b = $('#banner');
+  if (state.demo) { b.hidden = false; b.innerHTML = '<span>Showing sample data. Long-press the clock (2 s) to connect your calendar and Todoist.</span><button data-act="settings">Set up</button>'; }
+  else b.hidden = true;
+}
+
+/* ---------- interactions ---------- */
+document.addEventListener('click', e => {
+  const act = e.target.closest('[data-act]');
+  if (act && act.dataset.act === 'settings') { openSettings(); return; }
+  const row = e.target.closest('.task[data-id]'); if (!row) return;
+  const id = row.dataset.id;
+  if (pendingDone.has(id)) { clearTimeout(pendingDone.get(id)); pendingDone.delete(id); }
+  else pendingDone.set(id, setTimeout(() => { pendingDone.delete(id); completeTask(id); }, 4000));
+  renderTodoist();
+});
+
+function completeTask(id) {
+  if (state.demo) {
+    const d = state.cache.todoist.data; ['shopping', 'meals', 'reminders'].forEach(k => d[k] = d[k].filter(t => t.id !== id));
+  } else if (id.startsWith('tmp_')) {
+    queue = queue.filter(q => q.tempId !== id); saveQueue();      // added and ticked before it ever synced
+  } else {
+    if (!queue.some(q => q.op === 'close' && q.id === id)) queue.push({ op: 'close', id, ts: Date.now() });
+    saveQueue(); kickTodoist();
+  }
+  renderTodoist(); renderStatus();
+}
+
+$('#shop-add').addEventListener('submit', e => {
+  e.preventDefault();
+  const input = $('#shop-input'), text = input.value.trim(); if (!text) return;
+  const v = todoView(); if (!v || !v.shopId) return;
+  if (state.demo) state.cache.todoist.data.shopping.push({ id: 'demo' + Date.now(), content: text, order: 1e9 });
+  else { queue.push({ op: 'add', content: text, projectId: v.shopId, tempId: 'tmp_' + Date.now() + Math.random().toString(36).slice(2, 6), ts: Date.now() }); saveQueue(); kickTodoist(); }
+  input.value = ''; input.blur();
+  renderTodoist(); renderStatus();
+});
+
+/* long-press the clock to open settings (stops kids changing things by accident) */
+(function () {
+  let t = null; const el = $('#clock');
+  const cancel = () => { clearTimeout(t); t = null; };
+  el.addEventListener('pointerdown', () => { cancel(); t = setTimeout(openSettings, 2000); });
+  ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev => el.addEventListener(ev, cancel));
+  el.addEventListener('contextmenu', e => e.preventDefault());
+})();
+
+/* =====================================================================
+   Settings sheet
+   ===================================================================== */
+const FIELDS = [
+  ['Google Calendar'],
+  ['calendarMode', 'Access', 'select', { apikey: 'API key (calendars shared publicly)', oauth: 'Google sign-in (private calendars)' }],
+  ['googleApiKey', 'API key', 'text', 'Only for “API key” mode'],
+  ['googleClientId', 'OAuth client ID', 'text', 'Type “TVs and Limited Input devices”'],
+  ['googleClientSecret', 'OAuth client secret', 'text', ''],
+  ['calendars', 'Calendars', 'textarea', 'One per line:  calendar-id | Label | #colour', true],
+  ['calendarDays', 'Days to show', 'number', ''],
+  ['Todoist'],
+  ['todoistToken', 'API token', 'text', 'Todoist → Settings → Integrations → Developer', true],
+  ['shoppingProject', 'Shopping project', 'text', 'Sections become aisle headings'],
+  ['mealsProject', 'Meals project', 'text', 'Tasks with a due date = that day’s meal'],
+  ['remindersFilter', 'Reminders filter', 'text', 'Any Todoist filter query', true],
+  ['mealDays', 'Meal days to show', 'number', ''],
+  ['Display'],
+  ['refreshMinutes', 'Refresh every (minutes)', 'number', ''],
+  ['reloadAt', 'Daily page reload (HH:MM)', 'text', 'Clears memory; blank to disable'],
+  ['nightStart', 'Night mode from', 'text', 'HH:MM'],
+  ['nightEnd', 'Night mode until', 'text', 'HH:MM'],
+  ['dayBrightness', 'Day brightness (0–255)', 'text', 'Fully Kiosk only; blank = leave alone'],
+  ['nightBrightness', 'Night brightness (0–255)', 'text', 'Fully Kiosk only']
+];
+
+function openSettings() {
+  const s = $('#settings');
+  let h = '<div class="sheet"><header><h3>Kitchen Board settings</h3><span class="sp"></span><button data-s="close">Cancel</button><button class="primary" data-s="save">Save &amp; restart</button></header><div class="scroll">';
+  FIELDS.forEach(f => {
+    if (f.length === 1) { h += (h.includes('<fieldset') ? '</fieldset>' : '') + '<fieldset><legend>' + esc(f[0]) + '</legend>'; return; }
+    const [k, label, type, help, wide] = f, v = cfg[k];
+    h += '<label class="' + (wide ? 'wide' : '') + '">' + esc(label);
+    if (type === 'select') h += '<select name="' + k + '">' + Object.keys(help).map(o => '<option value="' + o + '"' + (v === o ? ' selected' : '') + '>' + esc(help[o]) + '</option>').join('') + '</select>';
+    else if (type === 'textarea') h += '<textarea name="' + k + '" spellcheck="false">' + esc(v) + '</textarea>';
+    else h += '<input name="' + k + '" type="' + (type === 'number' ? 'number' : 'text') + '" value="' + esc(v) + '" autocapitalize="off" spellcheck="false">';
+    if (type !== 'select' && help) h += '<small>' + esc(help) + '</small>';
+    h += '</label>';
+    if (k === 'calendars') {
+      const tok = store.get(K.gtoken, null);
+      h += '<div class="row"><button type="button" data-s="gconnect">' + (tok && tok.refresh_token && !tok.revoked ? 'Reconnect Google' : 'Connect Google') + '</button>' +
+        '<button type="button" data-s="glist">List my calendars</button><span id="gbox" style="font-size:.9rem"></span></div>';
+    }
+  });
+  h += '</fieldset><fieldset><legend>Backup &amp; diagnostics</legend>' +
+    '<label class="wide">Settings JSON (copy to back up, paste to restore)<textarea id="cfgjson" spellcheck="false"></textarea></label>' +
+    '<div class="row"><button type="button" data-s="import">Import JSON</button><button type="button" data-s="refresh">Refresh now</button><button type="button" data-s="clear">Clear cached data</button><button type="button" data-s="reload">Reload page</button></div>' +
+    '<div id="diag"></div></fieldset></div></div>';
+  s.innerHTML = h; s.hidden = false;
+  $('#cfgjson').value = JSON.stringify(cfg, null, 1);
+  const lines = Object.keys(SOURCES).map(k => {
+    const st = state.status[k], c = state.cache[k];
+    return SOURCES[k].name + ': ' + (SOURCES[k].enabled() ? (c ? 'data from ' + new Date(c.at).toLocaleString() : 'no data yet') + (st.lastError ? ' — ' + st.lastError : '') : 'not configured');
+  });
+  lines.push('Queued changes: ' + queue.length, 'Page loaded: ' + new Date(state.bootAt).toLocaleString(), '', 'Recent log:');
+  $('#diag').textContent = lines.concat(store.get(K.log, []).slice().reverse()).join('\n');
+}
+
+function formValues() {
+  const out = {};
+  $('#settings').querySelectorAll('[name]').forEach(el => out[el.name] = el.value.trim ? (el.name === 'calendars' ? el.value : el.value.trim()) : el.value);
+  return out;
+}
+
+$('#settings').addEventListener('click', async e => {
+  const b = e.target.closest('[data-s]'); if (!b) return;
+  const a = b.dataset.s;
+  if (a === 'close') { $('#settings').hidden = true; }
+  if (a === 'save') { store.set(K.cfg, Object.assign({}, cfg, formValues())); location.reload(); }
+  if (a === 'reload') location.reload();
+  if (a === 'refresh') { refreshAll(0); $('#settings').hidden = true; }
+  if (a === 'clear' && confirm('Clear cached calendar and list data? (Settings are kept.)')) { Object.keys(SOURCES).forEach(k => store.del(K.cache + k)); location.reload(); }
+  if (a === 'import') {
+    try { const v = JSON.parse($('#cfgjson').value); if (typeof v !== 'object' || !v) throw 0; store.set(K.cfg, Object.assign({}, DEFAULTS, v)); location.reload(); }
+    catch (err) { alert('That is not valid settings JSON.'); }
+  }
+  if (a === 'gconnect') {
+    const f = formValues();
+    if (!f.googleClientId || !f.googleClientSecret) { $('#gbox').textContent = 'Enter the OAuth client ID and secret first.'; return; }
+    connectGoogle(f.googleClientId, f.googleClientSecret, $('#gbox'));
+  }
+  if (a === 'glist') {
+    const f = formValues(), box = $('#gbox');
+    const saved = cfg; cfg = Object.assign({}, cfg, f, { calendarMode: 'oauth' });
+    try {
+      const auth = await googleAuth(false);
+      const r = await http('https://www.googleapis.com/calendar/v3/users/me/calendarList?minAccessRole=reader', { headers: { Authorization: auth } });
+      const ta = $('#settings [name=calendars]');
+      ta.value = (r.items || []).map((c, i) => c.id + ' | ' + (c.summaryOverride || c.summary) + ' | ' + (c.backgroundColor || PALETTE[i % PALETTE.length])).join('\n');
+      box.textContent = 'Found ' + (r.items || []).length + ' calendars — delete lines you don’t want, then Save.';
+    } catch (err) { box.textContent = err.message.startsWith('Google') ? err.message : 'Failed: ' + errMsg(err); }
+    finally { cfg = saved; }
+  }
+});
+
+/* =====================================================================
+   Clock, night mode, burn-in protection, self-healing
+   ===================================================================== */
+function setBrightness(v) {
+  if (v === '' || v == null) return;
+  try { if (window.fully && typeof fully.setScreenBrightness === 'function') fully.setScreenBrightness(Math.max(0, Math.min(255, Number(v)))); } catch (e) {}
+}
+function inNight(d) {
+  const s = toMin(cfg.nightStart), e = toMin(cfg.nightEnd); if (s == null || e == null || s === e) return false;
+  const m = d.getHours() * 60 + d.getMinutes();
+  return s < e ? (m >= s && m < e) : (m >= s || m < e);
+}
+let wakeUntil = 0, swallowClick = false;
+function applyNight() {
+  const night = inNight(new Date()) && Date.now() > wakeUntil;
+  if (night === state.night) return;
+  state.night = night;
+  document.body.classList.toggle('night', night);
+  setBrightness(night ? cfg.nightBrightness : cfg.dayBrightness);
+}
+/* at night the first touch only wakes the screen — it never ticks off an item */
+document.addEventListener('pointerdown', e => {
+  if (state.night && $('#settings').hidden) { swallowClick = true; wakeUntil = Date.now() + 90e3; applyNight(); e.stopPropagation(); }
+}, true);
+document.addEventListener('click', e => { if (swallowClick) { swallowClick = false; e.stopPropagation(); e.preventDefault(); } }, true);
+
+/* Reload only when the page itself can be fetched — otherwise a reload while offline would leave a blank screen. */
+async function safeReload(reason) {
+  log('reload: ' + reason);
+  if (location.protocol === 'file:') return location.reload();
+  try {
+    // goes through the service worker if one is installed, so this also succeeds offline when the shell is cached
+    const r = await Promise.race([fetch(location.href.split('#')[0], { cache: 'no-store' }), sleep(8000).then(() => null)]);
+    if (r && r.ok) return location.reload();
+  } catch (e) {}
+  log('reload skipped, page unreachable');
+}
+
+let lastMinute = -1, lastDay = ymd(new Date());
+function tick() {
+  const now = new Date();
+  $('#clock').textContent = fmtTime(now);
+  if (now.getMinutes() === lastMinute) return;
+  lastMinute = now.getMinutes();
+  $('#date').textContent = now.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' });
+  applyNight();
+
+  if (ymd(now) !== lastDay) { lastDay = ymd(now); refreshAll(5000); }    // new day: new date window
+  safeRender(); renderStatus();
+
+  // burn-in protection: drift the whole layout a few pixels every 10 minutes
+  if (now.getMinutes() % 10 === 0) $('#app').style.transform = 'translate(' + Math.round(Math.random() * 8 - 4) + 'px,' + Math.round(Math.random() * 6 - 3) + 'px)';
+
+  // watchdog: re-arm a source whose timer was lost (e.g. the WebView was paused)
+  Object.keys(SOURCES).forEach(k => {
+    const st = state.status[k]; if (!SOURCES[k].enabled() || state.demo) return;
+    if (st.running && Date.now() - st.startedAt > 3 * 60e3) { st.running = false; log(k + ' run hung, resetting'); }
+    if (!st.running && Date.now() - st.lastAttempt > refreshMs() * 2 + 5 * 60e3) { log(k + ' timer lost, re-arming'); schedule(k, 0); }
+  });
+
+  // daily reload to shed memory leaks in long-running WebViews
+  if (cfg.reloadAt && fmtHM(now) === cfg.reloadAt && Date.now() - state.bootAt > 3600e3) safeReload('daily');
+}
+const fmtHM = d => pad(d.getHours()) + ':' + pad(d.getMinutes());
+
+window.addEventListener('online', () => { log('online'); refreshAll(1500); renderStatus(); });
+window.addEventListener('offline', () => { log('offline'); renderStatus(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return;
+  tick();
+  Object.keys(SOURCES).forEach(k => { const c = state.cache[k]; if (!c || Date.now() - c.at > refreshMs()) schedule(k, 1000); });
+});
+// Fully Kiosk fires these when the screen wakes / network returns
+try { if (window.fully && fully.bind) { fully.bind('screenOn', 'refreshAll(2000)'); fully.bind('networkReconnect', 'refreshAll(2000)'); } } catch (e) {}
+
+/* =====================================================================
+   Demo data (shown until something is configured)
+   ===================================================================== */
+function loadDemo() {
+  const t = startOfDay(new Date()), at = (d, h, m) => new Date(t.getFullYear(), t.getMonth(), t.getDate() + d, h, m || 0).toISOString();
+  cfg.calendars = 'mum|Mum|#ff9f7c\nkids|Kids|#9be08a\nfamily|Family|#7cc4ff';
+  state.cache.calendar = { at: Date.now(), data: { byCal: {
+    mum: [{ title: 'Dentist', start: at(0, 9, 30), end: at(0, 10, 15), location: 'High St Dental' }, { title: 'Book club', start: at(2, 19, 30), end: at(2, 21) }],
+    kids: [{ title: 'Swimming', start: at(0, 16, 30), end: at(0, 17, 30), location: 'Leisure centre' }, { title: 'Football', start: at(1, 17), end: at(1, 18) }, { title: 'School trip', allDay: true, start: ymd(addDays(t, 3)), end: ymd(addDays(t, 4)) }],
+    family: [{ title: 'Bin day', allDay: true, start: ymd(addDays(t, 1)), end: ymd(addDays(t, 2)) }, { title: 'Grandma visiting', allDay: true, start: ymd(addDays(t, 4)), end: ymd(addDays(t, 7)) }, { title: 'Dinner at the Patels', start: at(5, 18, 30), end: at(5, 21) }]
+  }, errors: [] } };
+  const task = (id, content, extra) => Object.assign({ id: 'd' + id, content, order: id, section: null, due: null }, extra);
+  state.cache.todoist = { at: Date.now(), data: { shopId: 'demo',
+    sections: [{ id: 's1', name: 'Fruit & veg', order: 1 }, { id: 's2', name: 'Dairy', order: 2 }, { id: 's3', name: 'Cupboard', order: 3 }],
+    shopping: [task(1, 'Bananas', { section: 's1' }), task(2, 'Spinach', { section: 's1' }), task(3, 'Milk (2 pints)', { section: 's2' }), task(4, 'Cheddar', { section: 's2' }), task(5, 'Pasta', { section: 's3' }), task(6, 'Chopped tomatoes ×2', { section: 's3' }), task(7, 'Birthday card')],
+    meals: ['Spaghetti bolognese', 'Fish tacos', 'Chicken curry', 'Leftovers', 'Homemade pizza', 'Roast chicken'].map((m, i) => task(20 + i, m, { due: { date: ymd(addDays(t, i)) } })),
+    reminders: [task(30, 'Put the bins out', { due: { date: ymd(t) + 'T19:00:00', recurring: true } }), task(31, 'Sign school trip form', { due: { date: ymd(addDays(t, -1)) } }), task(32, 'Water the plants', { due: { date: ymd(addDays(t, 1)), recurring: true } }), task(33, 'Order Grandma’s birthday present', { due: { date: ymd(addDays(t, 2)) } })],
+    errors: [] } };
+}
+
+/* =====================================================================
+   Boot
+   ===================================================================== */
+(function boot() {
+  state.demo = !Object.keys(SOURCES).some(k => SOURCES[k].enabled());
+  if (state.demo) loadDemo();
+  renderBanner();
+  tick(); setInterval(tick, 1000);
+  safeRender(); renderStatus();
+  // stagger the first fetches a little so a cold boot doesn't hit everything at once
+  Object.keys(SOURCES).forEach((k, i) => schedule(k, 500 + i * 1500));
+  if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(e => log('sw: ' + e.message));
+  if (/[?&]settings\b/.test(location.search)) openSettings();
+  log('started' + (state.demo ? ' (demo)' : ''));
+})();
+</script>
+</body>
+</html>
