@@ -151,7 +151,8 @@ const K = { cfg:'kb.config', cache:'kb.cache.', queue:'kb.queue', gtoken:'kb.gto
 
 /* ---------- config ---------- */
 const DEFAULTS = {
-  calendarMode: 'apikey',           // 'apikey' (public calendars) | 'oauth' (private, device sign-in)
+  calendarMode: 'script',           // 'script' (Apps Script in your own Google account) | 'apikey' (public calendars) | 'oauth'
+  calendarScriptUrl: '',            // the Apps Script web app address, ending in /exec
   googleApiKey: '', googleClientId: '', googleClientSecret: '',
   calendars: '',                    // one per line:  calendarId | Label | #colour
   calendarDays: 7,
@@ -281,7 +282,26 @@ async function fetchCalendar(cal, from, to, auth) {
   return out;
 }
 
+/* Apps Script bridge: a tiny script in the family's own Google account reads their calendars
+   and returns them as JSON. No Cloud project, no sign-in that expires. See google-apps-script.js. */
+async function fetchCalendarScript() {
+  const url = String(cfg.calendarScriptUrl).trim();
+  const r = await http(url + (url.includes('?') ? '&' : '?') + 'days=' + num(cfg.calendarDays, 7), {}, 45000);
+  if (!r || !Array.isArray(r.calendars)) throw new Error(r && r.error ? 'calendar script: ' + r.error : 'calendar script address not working — check it ends in /exec and access is “Anyone”');
+  return r.calendars;
+}
+async function loadCalendarScript() {
+  const ids = parseCalendars().map(c => c.id);            // blank list = show every calendar
+  const out = { byCal: {}, meta: {}, errors: [] };
+  (await fetchCalendarScript()).forEach(c => {
+    if (ids.length && !ids.includes(c.id)) return;
+    out.byCal[c.id] = c.events || []; out.meta[c.id] = { label: c.name || '', color: c.color || '' };
+  });
+  return out;
+}
+
 async function loadCalendar(prev) {
+  if (cfg.calendarMode === 'script') return loadCalendarScript();
   const cals = parseCalendars();
   const from = addDays(startOfDay(new Date()), -1), to = addDays(startOfDay(new Date()), num(cfg.calendarDays, 7) + 1);
   let auth = await googleAuth(false);
@@ -401,7 +421,8 @@ async function loadTodoist() {
    State, cache and scheduler
    ===================================================================== */
 const SOURCES = {
-  calendar: { name: 'Calendar', enabled: () => parseCalendars().length > 0 && (cfg.calendarMode === 'oauth' ? !!cfg.googleClientId : !!cfg.googleApiKey), load: loadCalendar },
+  calendar: { name: 'Calendar', load: loadCalendar, enabled: () => cfg.calendarMode === 'script' ? !!String(cfg.calendarScriptUrl || '').trim()
+    : parseCalendars().length > 0 && (cfg.calendarMode === 'oauth' ? !!cfg.googleClientId : !!cfg.googleApiKey) },
   todoist:  { name: 'Todoist',  enabled: () => !!cfg.todoistToken, load: loadTodoist }
 };
 const state = { cache: {}, status: {}, timers: {}, demo: false, night: null, bootAt: Date.now() };
@@ -462,7 +483,9 @@ function renderCalendar() {
   const el = $('#cal-body');
   const c = state.cache.calendar;
   if (!c) { el.innerHTML = emptyMsg(SOURCES.calendar.enabled() || state.demo ? 'Loading calendar…' : 'No calendar set up — long-press the clock.'); return; }
-  const meta = {}; parseCalendars().forEach(x => meta[x.id] = x);
+  const meta = {}, dm = c.data.meta || {};
+  Object.keys(dm).forEach((id, i) => meta[id] = { label: dm[id].label, color: dm[id].color || PALETTE[i % PALETTE.length] });
+  parseCalendars().forEach(x => meta[x.id] = { label: x.label || (meta[x.id] && meta[x.id].label) || '', color: x.color });
   const now = new Date(), today = startOfDay(now);
   const events = [];
   Object.keys(c.data.byCal || {}).forEach(id => (c.data.byCal[id] || []).forEach(e => {
@@ -471,7 +494,7 @@ function renderCalendar() {
     if (isNaN(s)) return; if (isNaN(en) || en < s) en = s;
     events.push(Object.assign({ s, e: en, cal: meta[id] || { color: '#888', label: '' } }, e));
   }));
-  const multi = parseCalendars().length > 1;
+  const multi = Object.keys(c.data.byCal || {}).length > 1;
   let html = '';
   for (let i = 0; i < num(cfg.calendarDays, 7); i++) {
     const day = addDays(today, i), next = addDays(today, i + 1);
@@ -634,11 +657,12 @@ $('#shop-add').addEventListener('submit', e => {
    ===================================================================== */
 const FIELDS = [
   ['Google Calendar'],
-  ['calendarMode', 'Access', 'select', { apikey: 'API key (calendars shared publicly)', oauth: 'Google sign-in (private calendars)' }],
+  ['calendarMode', 'Access', 'select', { script: 'Apps Script in my Google account (recommended)', apikey: 'API key (calendars shared publicly)', oauth: 'Google sign-in (advanced)' }],
+  ['calendarScriptUrl', 'Apps Script web app address', 'text', 'Ends in /exec — see the setup guide', true],
   ['googleApiKey', 'API key', 'text', 'Only for “API key” mode'],
   ['googleClientId', 'OAuth client ID', 'text', 'Type “TVs and Limited Input devices”'],
   ['googleClientSecret', 'OAuth client secret', 'text', ''],
-  ['calendars', 'Calendars', 'textarea', 'One per line:  calendar-id | Label | #colour', true],
+  ['calendars', 'Calendars', 'textarea', 'One per line:  calendar-id | Label | #colour. Leave blank to show all, or tap “List my calendars” and delete the ones you don’t want.', true],
   ['calendarDays', 'Days to show', 'number', ''],
   ['Todoist'],
   ['todoistToken', 'API token', 'text', 'Todoist → Settings → Integrations → Developer', true],
@@ -669,7 +693,7 @@ function openSettings() {
     h += '</label>';
     if (k === 'calendars') {
       const tok = store.get(K.gtoken, null);
-      h += '<div class="row"><button type="button" data-s="gconnect">' + (tok && tok.refresh_token && !tok.revoked ? 'Reconnect Google' : 'Connect Google') + '</button>' +
+      h += '<div class="row">' + (cfg.calendarMode === 'oauth' ? '<button type="button" data-s="gconnect">' + (tok && tok.refresh_token && !tok.revoked ? 'Reconnect Google' : 'Connect Google') + '</button>' : '') +
         '<button type="button" data-s="glist">List my calendars</button><span id="gbox" style="font-size:.9rem"></span></div>';
     }
   });
@@ -709,6 +733,18 @@ $('#settings').addEventListener('click', async e => {
     const f = formValues();
     if (!f.googleClientId || !f.googleClientSecret) { $('#gbox').textContent = 'Enter the OAuth client ID and secret first.'; return; }
     connectGoogle(f.googleClientId, f.googleClientSecret, $('#gbox'));
+  }
+  if (a === 'glist' && formValues().calendarMode === 'script') {
+    const f = formValues(), box = $('#gbox'), saved = cfg;
+    if (!f.calendarScriptUrl) { box.textContent = 'Paste the Apps Script web app address first.'; return; }
+    cfg = Object.assign({}, cfg, f); box.textContent = 'Asking Google…';
+    try {
+      const list = await fetchCalendarScript();
+      $('#settings [name=calendars]').value = list.map((c, i) => c.id + ' | ' + c.name + ' | ' + (c.color || PALETTE[i % PALETTE.length])).join('\n');
+      box.textContent = 'Found ' + list.length + ' calendars — delete lines you don’t want, then Save.';
+    } catch (err) { box.textContent = err.message.startsWith('calendar script') ? err.message : 'Failed: ' + errMsg(err); }
+    finally { cfg = saved; }
+    return;
   }
   if (a === 'glist') {
     const f = formValues(), box = $('#gbox');

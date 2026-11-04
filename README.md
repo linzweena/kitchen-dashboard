@@ -21,10 +21,17 @@ Until you set something up, the board shows sample data.
 
 **Todoist:** Settings → Integrations → Developer → copy the API token. Create projects named `Shopping`, `Meals` and `Reminders`, or change the names in settings.
 
-**Google Calendar:** pick one of two ways.
-- *API key* (simplest). This only works for calendars shared publicly. In Google Cloud Console, turn on the Calendar API and create an API key. Restrict the key to the Calendar API and to your site's address.
-- *Google sign-in* (for private calendars). Create an OAuth client of type **"TVs and Limited Input devices"**. Enter its client ID and secret, then tap **Connect Google**. Approve the code on your phone, then tap **List my calendars**.
-  **Important:** set the OAuth consent screen's publishing status to **In production**, not "Testing". In "Testing" mode, Google expires the sign-in after 7 days.
+**Google Calendar (recommended way): a small helper in your own Google account**
+1. On a computer, go to https://script.google.com, signed in to the Google account that has the family calendars. Click **New project**.
+2. Delete what's in the editor. Paste in everything from `google-apps-script.js` in this folder, then click the save icon.
+3. Click **Deploy**, then **New deployment**. Click the cog next to "Select type" and choose **Web app**. Set **Execute as: Me** and **Who has access: Anyone**, then click **Deploy**.
+4. Click **Authorize access** and choose your account. If Google says it "hasn't verified this app", click **Advanced**, then **Go to … (unsafe)**. That warning appears because the app is yours rather than a published one. Then click **Allow**.
+5. Copy the **Web app URL**, which ends in `/exec`. Keep it private, because anyone with it can see your calendar.
+6. On the board, open the settings. Leave Access on **Apps Script…**, paste the address in, and tap **List my calendars**. Delete any calendars you don't want, then tap **Save & restart**.
+
+The helper only reads calendars, never changes them, and it doesn't expire. If the address ever leaks, go to Deploy → Manage deployments, archive the old one and make a new one.
+
+The two other options (API key, and Google sign-in) are kept for advanced use. The API key only works for calendars shared publicly. Google sign-in requires an OAuth client in Google Cloud Console, and Google may not allow calendar access through that sign-in method.
 
 Use **Backup & diagnostics** in settings to export the settings as JSON. The same panel shows the recent error log.
 
