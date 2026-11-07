@@ -35,6 +35,13 @@ The two other options (API key, and Google sign-in) are kept for advanced use. T
 
 Use **Backup & diagnostics** in settings to export the settings as JSON. The same panel shows the recent error log.
 
+## Photo screen saver
+When nobody has touched the screen for 5 minutes, the board shows a slideshow of family photos. A strip along the bottom shows the time, what's on next, tonight's dinner and anything due today. One tap brings the board back, and that tap never ticks anything off. The slideshow stays off during night mode.
+
+Photos come from a Google Drive folder called **Kitchen Board Photos**. The Google helper (`google-apps-script.js`) creates that folder the first time the board asks for photos. Anyone the folder is shared with can add pictures from their phone. The tablet keeps its own copy of each photo, so the slideshow still works offline. When a photo is removed from the folder, it disappears from the board too.
+
+To change how long before it starts, or how long each photo shows, go to Settings → Photo screen saver. Set "Start after" to 0 to turn the slideshow off.
+
 ## How it keeps running on its own
 - Every dataset is cached on the tablet. When a fetch fails, the board keeps showing the last good data, and the status bar says how old it is.
 - After a failure it retries with backoff (30 s → 1 min → 2 min … up to the normal refresh interval). It refreshes straight away when the network comes back or the screen wakes.

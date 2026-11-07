@@ -104,6 +104,25 @@ body.night .ev.past{opacity:.25}
 .sheet .row{grid-column:1/-1;display:flex;gap:.6rem;flex-wrap:wrap;align-items:center}
 .code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:1.4rem;color:var(--accent);letter-spacing:.1em}
 #diag{white-space:pre-wrap;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.75rem;color:var(--muted);grid-column:1/-1;background:var(--panel2);border-radius:8px;padding:.6rem;max-height:12rem;overflow:auto}
+
+/* photo screen saver */
+#saver{position:fixed;inset:0;background:#000;z-index:5;overflow:hidden;cursor:none}
+#saver[hidden]{display:none}
+#saver .layer{position:absolute;inset:0;opacity:0;transition:opacity 2s ease}
+#saver .layer.show{opacity:1}
+#saver img{position:absolute;inset:0;width:100%;height:100%}
+#saver .bg{object-fit:cover;filter:blur(40px) brightness(.45);transform:scale(1.15)}
+#saver .fg{object-fit:contain}
+#saver .layer.show .fg{animation:kb-drift var(--photo-secs,20s) ease-out forwards}
+@keyframes kb-drift{from{transform:scale(1)}to{transform:scale(1.05)}}
+#saver-info{position:absolute;left:0;right:0;bottom:0;padding:3rem 2rem 1.4rem;display:flex;align-items:flex-end;gap:2rem;
+  background:linear-gradient(transparent,rgba(0,0,0,.75) 55%);color:#fff;text-shadow:0 1px 4px rgba(0,0,0,.6)}
+#sv-time{font-size:4rem;font-weight:300;line-height:.9;font-variant-numeric:tabular-nums}
+#sv-date{font-size:1.2rem;opacity:.8;margin-top:.4rem}
+#sv-items{margin-left:auto;display:flex;flex-direction:column;gap:.35rem;align-items:flex-end;font-size:1.15rem;text-align:right;max-width:55%}
+#sv-items .lbl{opacity:.65;font-size:.85rem;text-transform:uppercase;letter-spacing:.1em;margin-right:.5rem}
+#sv-items .over{color:#ff9b9b}
+@media (orientation:portrait){#saver-info{flex-direction:column;align-items:flex-start;gap:1rem}#sv-items{margin-left:0;align-items:flex-start;text-align:left;max-width:100%}}
 </style>
 </head>
 <body>
@@ -126,6 +145,11 @@ body.night .ev.past{opacity:.25}
   </main>
 </div>
 <div id="settings" hidden></div>
+<div id="saver" hidden>
+  <div class="layer"><img class="bg" alt=""><img class="fg" alt=""></div>
+  <div class="layer"><img class="bg" alt=""><img class="fg" alt=""></div>
+  <div id="saver-info"><div><div id="sv-time"></div><div id="sv-date"></div></div><div id="sv-items"></div></div>
+</div>
 
 <script>
 'use strict';
@@ -164,7 +188,9 @@ const DEFAULTS = {
   refreshMinutes: 5,
   nightStart: '22:00', nightEnd: '06:30',
   dayBrightness: '', nightBrightness: '10',   // Fully Kiosk brightness 0–255; blank = leave alone
-  reloadAt: '03:30'
+  reloadAt: '03:30',
+  photoIdleMinutes: '5',            // photo screen saver: minutes untouched before it starts; 0 = off
+  photoSeconds: '20'                // seconds per photo
 };
 let cfg = Object.assign({}, DEFAULTS, store.get(K.cfg, {}));
 const PALETTE = ['#7cc4ff','#ff9f7c','#9be08a','#d4a5ff','#ffd36b','#6be0d4','#ff8fc2'];
@@ -676,7 +702,10 @@ const FIELDS = [
   ['nightStart', 'Night mode from', 'text', 'HH:MM'],
   ['nightEnd', 'Night mode until', 'text', 'HH:MM'],
   ['dayBrightness', 'Day brightness (0–255)', 'text', 'Fully Kiosk only; blank = leave alone'],
-  ['nightBrightness', 'Night brightness (0–255)', 'text', 'Fully Kiosk only']
+  ['nightBrightness', 'Night brightness (0–255)', 'text', 'Fully Kiosk only'],
+  ['Photo screen saver'],
+  ['photoIdleMinutes', 'Start after (minutes untouched)', 'number', '0 = off. Photos come from the “Kitchen Board Photos” folder in Google Drive.'],
+  ['photoSeconds', 'Seconds per photo', 'number', '']
 ];
 
 function openSettings() {
@@ -699,7 +728,7 @@ function openSettings() {
   });
   h += '</fieldset><fieldset><legend>Backup &amp; diagnostics</legend>' +
     '<label class="wide">Settings JSON (copy to back up, paste to restore)<textarea id="cfgjson" spellcheck="false"></textarea></label>' +
-    '<div class="row"><button type="button" data-s="import">Import JSON</button><button type="button" data-s="refresh">Refresh now</button><button type="button" data-s="clear">Clear cached data</button><button type="button" data-s="reload">Reload page</button></div>' +
+    '<div class="row"><button type="button" data-s="import">Import JSON</button><button type="button" data-s="refresh">Refresh now</button><button type="button" data-s="photos">Fetch photos now</button><button type="button" data-s="clear">Clear cached data</button><button type="button" data-s="reload">Reload page</button></div>' +
     '<div id="diag"></div></fieldset></div></div>';
   s.innerHTML = h; s.hidden = false;
   $('#cfgjson').value = JSON.stringify(cfg, null, 1);
@@ -707,6 +736,7 @@ function openSettings() {
     const st = state.status[k], c = state.cache[k];
     return SOURCES[k].name + ': ' + (SOURCES[k].enabled() ? (c ? 'data from ' + new Date(c.at).toLocaleString() : 'no data yet') + (st.lastError ? ' — ' + st.lastError : '') : 'not configured');
   });
+  lines.push('Photos: ' + (photosEnabled() ? photos.have.size + ' of ' + photos.list.length + ' ready' + (photos.lastSync ? ', checked ' + ago(photos.lastSync) : '') + (photos.err ? ' — ' + photos.err : '') : 'off'));
   lines.push('Queued changes: ' + queue.length, 'Page loaded: ' + new Date(state.bootAt).toLocaleString(), '', 'Recent log:');
   $('#diag').textContent = lines.concat(store.get(K.log, []).slice().reverse()).join('\n');
 }
@@ -724,6 +754,7 @@ $('#settings').addEventListener('click', async e => {
   if (a === 'save') { store.set(K.cfg, Object.assign({}, cfg, formValues())); location.reload(); }
   if (a === 'reload') location.reload();
   if (a === 'refresh') { refreshAll(0); $('#settings').hidden = true; }
+  if (a === 'photos') { b.textContent = 'Fetching…'; await syncPhotos(); b.textContent = photos.err ? 'Failed: ' + photos.err : photos.have.size + ' photos ready'; }
   if (a === 'clear' && confirm('Clear cached calendar and list data? (Settings are kept.)')) { Object.keys(SOURCES).forEach(k => store.del(K.cache + k)); location.reload(); }
   if (a === 'import') {
     try { const v = JSON.parse($('#cfgjson').value); if (typeof v !== 'object' || !v) throw 0; store.set(K.cfg, Object.assign({}, DEFAULTS, v)); location.reload(); }
@@ -777,6 +808,7 @@ function applyNight() {
   const night = inNight(new Date()) && Date.now() > wakeUntil;
   if (night === state.night) return;
   state.night = night;
+  if (night) stopSaver();
   document.body.classList.toggle('night', night);
   setBrightness(night ? cfg.nightBrightness : cfg.dayBrightness);
 }
@@ -802,6 +834,7 @@ let lastMinute = -1, lastDay = ymd(new Date());
 function tick() {
   const now = new Date();
   $('#clock').textContent = fmtTime(now);
+  try { saverTick(now); } catch (e) { log('saver: ' + e.message); stopSaver(); }
   if (now.getMinutes() === lastMinute) return;
   lastMinute = now.getMinutes();
   $('#date').textContent = now.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' });
@@ -820,6 +853,9 @@ function tick() {
     if (!st.running && Date.now() - st.lastAttempt > refreshMs() * 2 + 5 * 60e3) { log(k + ' timer lost, re-arming'); schedule(k, 0); }
   });
 
+  // photo list: re-check every 6 h, or every 30 min while photos are still downloading
+  if (photosEnabled() && !photos.syncing && Date.now() - photos.lastSync > (photos.have.size < photos.list.length ? 30 : 360) * 60e3) syncPhotos();
+
   // daily reload to shed memory leaks in long-running WebViews
   if (cfg.reloadAt && fmtHM(now) === cfg.reloadAt && Date.now() - state.bootAt > 3600e3) safeReload('daily');
 }
@@ -834,6 +870,147 @@ document.addEventListener('visibilitychange', () => {
 });
 // Fully Kiosk fires these when the screen wakes / network returns
 try { if (window.fully && fully.bind) { fully.bind('screenOn', 'refreshAll(2000)'); fully.bind('networkReconnect', 'refreshAll(2000)'); } } catch (e) {}
+
+/* =====================================================================
+   Photo screen saver — pictures from the "Kitchen Board Photos" Drive folder,
+   fetched through the Apps Script helper and kept on the tablet (Cache Storage),
+   so the slideshow also works offline.
+   ===================================================================== */
+const PHOTO_CACHE = 'kb-photos-v1';
+const photos = { list: store.get('kb.photos', []), have: new Set(), bad: new Set(), lastSync: 0, syncing: false, err: '',
+  active: false, order: [], idx: 0, next: 0, lastTouch: Date.now(), urls: [], layer: 0 };
+const photosEnabled = () => cfg.calendarMode === 'script' && !!String(cfg.calendarScriptUrl || '').trim() && Number(cfg.photoIdleMinutes) > 0;
+const helperUrl = q => { const u = String(cfg.calendarScriptUrl).trim(); return u + (u.includes('?') ? '&' : '?') + q; };
+const photoKey = id => new URL('photo-cache/' + encodeURIComponent(id), location.href).href;
+async function photoCache() { try { return 'caches' in window ? await caches.open(PHOTO_CACHE) : null; } catch (e) { return null; } }
+
+async function refreshHave() {
+  const cache = await photoCache(); const have = new Set();
+  if (cache) { const keys = new Set((await cache.keys()).map(r => r.url)); photos.list.forEach(id => { if (keys.has(photoKey(id))) have.add(id); }); }
+  photos.have = have;
+}
+
+async function syncPhotos() {
+  if (!photosEnabled() || photos.syncing) return;
+  photos.syncing = true; photos.lastSync = Date.now();
+  try {
+    const cache = await photoCache();
+    if (!cache) throw new Error('this browser can’t store photos');
+    const r = await http(helperUrl('photos=list'), {}, 45000);
+    if (!r || !Array.isArray(r.photos)) throw new Error(r && r.error ? r.error : 'Google helper needs updating for photos');
+    photos.list = r.photos.map(p => String(p.id)); store.set('kb.photos', photos.list);
+    const want = new Set(photos.list.map(photoKey));
+    for (const k of await cache.keys()) if (!want.has(k.url)) await cache.delete(k);     // removed from Drive → removed here
+    let fetched = 0;
+    for (const id of photos.list) {
+      if (fetched >= 15) break;                       // a few at a time; the rest on the next round
+      if (photos.bad.has(id) || await cache.match(photoKey(id))) continue;
+      fetched++;
+      try {
+        const p = await http(helperUrl('photo=' + encodeURIComponent(id)), {}, 90000);
+        if (!p || !p.data) throw new Error(p && p.error || 'no picture returned');
+        const bin = atob(p.data), bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        await cache.put(photoKey(id), new Response(new Blob([bytes], { type: p.mime || 'image/jpeg' })));
+      } catch (e) {
+        if (e instanceof TypeError || e.message === 'timed out') throw e;    // offline: stop, try later
+        photos.bad.add(id); log('photo skipped: ' + errMsg(e));
+      }
+    }
+    photos.err = '';
+  } catch (e) { photos.err = errMsg(e); log('photos: ' + photos.err); }
+  finally { await refreshHave(); photos.syncing = false; }
+}
+
+function saverTick(now) {
+  if (photos.active) {
+    $('#sv-time').textContent = fmtTime(now);
+    if (now.getSeconds() === 0) renderSaverInfo();
+    if (Date.now() >= photos.next) showNextPhoto();
+    return;
+  }
+  const idle = Number(cfg.photoIdleMinutes);
+  if (!photosEnabled() || state.night || state.demo || !photos.have.size || !$('#settings').hidden) return;
+  if (document.activeElement && document.activeElement.tagName === 'INPUT') return;
+  if (Date.now() - photos.lastTouch >= idle * 60e3) startSaver();
+}
+
+function startSaver() {
+  photos.order = Array.from(photos.have).sort(() => Math.random() - 0.5);
+  photos.idx = 0; photos.active = true; photos.next = 0;
+  document.documentElement.style.setProperty('--photo-secs', num(cfg.photoSeconds, 20) + 's');
+  $('#saver').hidden = false;
+  renderSaverInfo(); saverTick(new Date());
+}
+
+function stopSaver() {
+  if (!photos.active) return;
+  photos.active = false;
+  $('#saver').hidden = true;
+  document.querySelectorAll('#saver .layer').forEach(l => { l.classList.remove('show'); l.querySelectorAll('img').forEach(i => i.removeAttribute('src')); });
+  photos.urls.forEach(u => URL.revokeObjectURL(u)); photos.urls = [];
+}
+
+async function showNextPhoto() {
+  photos.next = Date.now() + num(cfg.photoSeconds, 20) * 1000;
+  const cache = await photoCache(); if (!cache || !photos.order.length) return stopSaver();
+  for (let tries = 0; tries < photos.order.length; tries++) {
+    const id = photos.order[photos.idx++ % photos.order.length];
+    if (photos.idx % photos.order.length === 0) photos.order.sort(() => Math.random() - 0.5);
+    const res = await cache.match(photoKey(id));
+    if (!res) continue;
+    const url = URL.createObjectURL(await res.blob());
+    const ok = await new Promise(r => { const im = new Image(); im.onload = () => r(true); im.onerror = () => r(false); im.src = url; });
+    if (!ok) { URL.revokeObjectURL(url); continue; }
+    if (!photos.active) { URL.revokeObjectURL(url); return; }
+    photos.layer = 1 - photos.layer;
+    const layers = document.querySelectorAll('#saver .layer'), on = layers[photos.layer], off = layers[1 - photos.layer];
+    on.querySelectorAll('img').forEach(i => i.src = url);
+    on.classList.remove('show'); void on.offsetWidth; on.classList.add('show'); off.classList.remove('show');
+    photos.urls.push(url);
+    while (photos.urls.length > 2) URL.revokeObjectURL(photos.urls.shift());   // keep only the two on screen
+    return;
+  }
+  stopSaver();
+}
+
+function renderSaverInfo() {
+  const now = new Date();
+  $('#sv-date').textContent = now.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' });
+  const items = [];
+  /* calendar: what's on now / next, today and tomorrow */
+  const c = state.cache.calendar;
+  if (c) {
+    const tomorrowEnd = addDays(startOfDay(now), 2), evs = [];
+    Object.keys(c.data.byCal || {}).forEach(id => (c.data.byCal[id] || []).forEach(e => {
+      const s = e.allDay ? parseYmd(e.start) : new Date(e.start), en = e.end ? (e.allDay ? parseYmd(e.end) : new Date(e.end)) : s;
+      if (isNaN(s)) return;
+      if (e.allDay ? (dayDiff(s) <= 0 && en > startOfDay(now)) : (en > now && s < tomorrowEnd)) evs.push({ s, allDay: e.allDay, title: e.title });
+    }));
+    evs.sort((a, b) => (b.allDay - a.allDay) || (a.s - b.s));
+    evs.slice(0, 2).forEach(e => {
+      const when = e.allDay ? 'Today' : e.s <= now ? 'Now' : (dayDiff(e.s) === 0 ? '' : 'Tomorrow ') + fmtTime(e.s);
+      items.push('<div><span class="lbl">' + esc(when) + '</span>' + esc(e.title) + '</div>');
+    });
+  }
+  /* tonight's dinner and reminders due today */
+  const v = todoView();
+  if (v) {
+    const meal = v.meals.filter(t => t.due && t.due.date.slice(0, 10) === ymd(now));
+    if (meal.length) items.push('<div><span class="lbl">Dinner</span>' + esc(meal.map(t => t.content).join(', ')) + '</div>');
+    const due = v.reminders.filter(t => { const d = dueDate(t.due); return d && dayDiff(d) <= 0; });
+    if (due.length) items.push('<div class="' + (due.some(t => dayDiff(dueDate(t.due)) < 0) ? 'over' : '') + '"><span class="lbl">To do</span>' +
+      esc(due.slice(0, 2).map(t => t.content).join(', ')) + (due.length > 2 ? ' +' + (due.length - 2) : '') + '</div>');
+  }
+  $('#sv-items').innerHTML = items.join('');
+}
+
+/* any touch counts as activity; a touch on the slideshow only closes it */
+document.addEventListener('pointerdown', e => {
+  photos.lastTouch = Date.now();
+  if (photos.active) { stopSaver(); swallowClick = true; e.stopPropagation(); }
+}, true);
+document.addEventListener('keydown', () => { photos.lastTouch = Date.now(); }, true);
 
 /* =====================================================================
    Demo data (shown until something is configured)
@@ -868,6 +1045,7 @@ function loadDemo() {
   Object.keys(SOURCES).forEach((k, i) => schedule(k, 500 + i * 1500));
   if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(e => log('sw: ' + e.message));
   if (/[?&]settings\b/.test(location.search)) openSettings();
+  refreshHave().then(() => { if (photosEnabled()) setTimeout(syncPhotos, 20000); });
   log('started' + (state.demo ? ' (demo)' : ''));
 })();
 </script>
