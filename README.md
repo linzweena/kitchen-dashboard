@@ -49,6 +49,9 @@ If a photo shows the wrong way round, tap the ↻ button in the top-right corner
 
 To change how long before it starts, or how long each photo shows, go to Settings → Photo screen saver. Set "Start after" to 0 to turn the slideshow off.
 
+## App buttons
+Buttons along the top of the board open other apps in one tap, such as the robot hoover's app. Add them in Settings → **App buttons**, one per line: `icon | name | Play Store link`. To get the link, open the app's page in the Play Store, tap Share and choose Copy link. This needs **Enable JavaScript Interface** turned on in Fully Kiosk (Advanced Web Settings).
+
 ## Seasonal decorations
 Animated decorations appear by themselves at certain times of year:
 

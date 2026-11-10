@@ -159,6 +159,12 @@ body.night #decor,body.night #decor-head{display:none}
 #decor-head{flex:1;text-align:center;font-size:1.6rem;padding-bottom:.25rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #decor-head .msg{font-size:1.3rem;font-weight:600;color:#ffd36b;margin:0 .5rem;vertical-align:middle}
 body.paused *{animation-play-state:paused!important}
+#apps{display:flex;gap:.5rem;align-items:center;padding-bottom:.3rem;flex-wrap:wrap}
+#apps button{display:flex;align-items:center;gap:.4rem;border-radius:99px;padding:.45rem .9rem;font-size:.9rem;background:var(--panel2)}
+#apps button .ic{font-size:1.2rem;line-height:1}
+#toast{position:fixed;left:50%;bottom:1.5rem;transform:translateX(-50%);background:#2a2410;color:#f6d98a;border:1px solid #4a3f17;border-radius:12px;
+  padding:.7rem 1.1rem;font-size:.95rem;z-index:20;max-width:90vw;text-align:center}
+#toast[hidden]{display:none}
 </style>
 </head>
 <body>
@@ -167,6 +173,7 @@ body.paused *{animation-play-state:paused!important}
     <div id="clock">--:--</div>
     <div id="date"></div>
     <div id="decor-head"></div>
+    <div id="apps"></div>
     <div id="status"></div>
   </header>
   <div id="banner" hidden></div>
@@ -183,6 +190,7 @@ body.paused *{animation-play-state:paused!important}
 </div>
 <div id="settings" hidden></div>
 <div id="decor"></div>
+<div id="toast" hidden></div>
 <div id="saver" hidden>
   <div class="layer"><img class="bg" alt=""><img class="fg" alt=""></div>
   <div class="layer"><img class="bg" alt=""><img class="fg" alt=""></div>
@@ -234,13 +242,34 @@ const DEFAULTS = {
   birthdays: '09/01\n20/02\n25/08',  // one per line: DD/MM | Name (name optional)
   anniversaries: '05/05',            // same format
   summerHolidays: '22/07 - 03/09',   // DD/MM - DD/MM
-  colour0Hex: '#d81b60'              // colour for events with no colour of their own (Cherry blossom)
+  colour0Hex: '#d81b60',             // colour for events with no colour of their own (Cherry blossom)
+  apps: ''                           // app buttons, one per line: emoji | Name | Play Store link (or package name)
 };
 let cfg = Object.assign({}, DEFAULTS, store.get(K.cfg, {}));
 if (store.get(K.cfg, null) && !(cfg.cfgV >= 2)) {      // one-time upgrade: 7-day calendar → 30 days
   if (Number(cfg.calendarDays) === 7) cfg.calendarDays = 30;
   cfg.cfgV = 2; store.set(K.cfg, cfg);
 }
+/* ---------- app buttons (opens other apps through Fully Kiosk) ---------- */
+function parseApps() {
+  return String(cfg.apps || '').split('\n').map(l => l.split('|').map(x => x.trim())).filter(a => a.length >= 3 && a[2]).map(a => {
+    const m = /[?&]id=([\w.]+)/.exec(a[2]);
+    const pkg = m ? m[1] : (/^[a-z][\w]*(\.[\w]+)+$/i.test(a[2]) ? a[2] : '');
+    return { icon: a[0], name: a[1], pkg };
+  }).filter(a => a.pkg);
+}
+function renderApps() {
+  $('#apps').innerHTML = parseApps().map(a => '<button type="button" data-app="' + esc(a.pkg) + '"><span class="ic">' + esc(a.icon) + '</span>' + esc(a.name) + '</button>').join('');
+}
+let toastTimer = null;
+function toast(msg, ms) { const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => t.hidden = true, ms || 6000); }
+function launchApp(pkg) {
+  try {
+    if (window.fully && typeof fully.startApplication === 'function') { fully.startApplication(pkg); return; }
+  } catch (e) { log('launch: ' + e.message); }
+  toast('Can’t open apps yet — in Fully Kiosk’s settings, turn on “Enable JavaScript Interface” (under Advanced Web Settings).', 9000);
+}
+
 /* Google Calendar's event colours (as shown in its colour picker), in picker order */
 const GCOLOURS = [['11', 'Tomato', '#d50000'], ['4', 'Flamingo', '#e67c73'], ['6', 'Tangerine', '#f4511e'], ['5', 'Banana', '#f6bf26'],
   ['2', 'Sage', '#33b679'], ['10', 'Basil', '#0b8043'], ['7', 'Peacock', '#039be5'], ['9', 'Blueberry', '#3f51b5'],
@@ -719,6 +748,8 @@ function renderBanner() {
 
 /* ---------- interactions ---------- */
 document.addEventListener('click', e => {
+  const app = e.target.closest('[data-app]');
+  if (app) { launchApp(app.dataset.app); return; }
   const act = e.target.closest('[data-act]');
   if (act && act.dataset.act === 'settings') { openSettings(); return; }
   const row = e.target.closest('.task[data-id]'); if (!row) return;
@@ -801,6 +832,9 @@ const FIELDS = [
   ['Photo screen saver'],
   ['photoIdleMinutes', 'Start after (minutes untouched)', 'number', '0 = off. Photos come from the “Kitchen Board Photos” folder in Google Drive.'],
   ['photoSeconds', 'Seconds per photo', 'number', ''],
+  ['App buttons'],
+  ['note', 'Buttons along the top of the board that open another app in one tap. One per line: icon | name | Play Store link. To get an app’s link: open its page in the Play Store, tap ⋮ (or the share icon), choose Share, then Copy link, and paste it here.', 'note'],
+  ['apps', 'Buttons', 'textarea', 'e.g.  🧹 | Hoover | https://play.google.com/store/apps/details?id=…', true],
   ['Seasonal decorations'],
   ['decorations', 'Decorations', 'select', { on: 'On', off: 'Off' }],
   ['birthdays', 'Birthdays', 'textarea', 'One per line:  day/month | Name   e.g.  09/01 | Sam   (the name is optional)'],
@@ -1392,6 +1426,7 @@ function loadDemo() {
   state.demo = !Object.keys(SOURCES).some(k => SOURCES[k].enabled());
   if (state.demo) loadDemo();
   renderBanner();
+  renderApps();
   tick(); setInterval(tick, 1000);
   safeRender(); renderStatus();
   // stagger the first fetches a little so a cold boot doesn't hit everything at once
