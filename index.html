@@ -228,7 +228,8 @@ const DEFAULTS = {
   decorations: 'on',
   birthdays: '09/01\n20/02\n25/08',  // one per line: DD/MM | Name (name optional)
   anniversaries: '05/05',            // same format
-  summerHolidays: '22/07 - 03/09'    // DD/MM - DD/MM
+  summerHolidays: '22/07 - 03/09',   // DD/MM - DD/MM
+  colour0Hex: '#d81b60'              // colour for events with no colour of their own (Cherry blossom)
 };
 let cfg = Object.assign({}, DEFAULTS, store.get(K.cfg, {}));
 if (store.get(K.cfg, null) && !(cfg.cfgV >= 2)) {      // one-time upgrade: 7-day calendar → 30 days
@@ -240,6 +241,11 @@ const GCOLOURS = [['11', 'Tomato', '#d50000'], ['4', 'Flamingo', '#e67c73'], ['6
   ['2', 'Sage', '#33b679'], ['10', 'Basil', '#0b8043'], ['7', 'Peacock', '#039be5'], ['9', 'Blueberry', '#3f51b5'],
   ['1', 'Lavender', '#7986cb'], ['3', 'Grape', '#8e24aa'], ['8', 'Graphite', '#616161']];
 const GCOLOUR = {}; GCOLOURS.forEach(c => GCOLOUR[c[0]] = c);
+/* calendar-level colours from Google's picker (close matches), for events that use their calendar's colour */
+const CALCOLOURS = [['Cherry blossom', '#d81b60'], ['Radicchio', '#ad1457'], ['Tomato', '#d50000'], ['Flamingo', '#e67c73'], ['Tangerine', '#f4511e'],
+  ['Pumpkin', '#ef6c00'], ['Mango', '#f09300'], ['Banana', '#f6bf26'], ['Citron', '#e4c441'], ['Avocado', '#c0ca33'], ['Pistachio', '#7cb342'],
+  ['Sage', '#33b679'], ['Basil', '#0b8043'], ['Eucalyptus', '#009688'], ['Peacock', '#039be5'], ['Cobalt', '#4285f4'], ['Blueberry', '#3f51b5'],
+  ['Lavender', '#7986cb'], ['Wisteria', '#b39ddb'], ['Amethyst', '#9e69af'], ['Grape', '#8e24aa'], ['Cocoa', '#795548'], ['Birch', '#a79b8e'], ['Graphite', '#616161']];
 const inkFor = hex => { const n = parseInt(String(hex).replace('#', '').slice(0, 6), 16); if (isNaN(n)) return '#fff';
   const r = n >> 16 & 255, g = n >> 8 & 255, b = n & 255; return (0.299 * r + 0.587 * g + 0.114 * b) > 160 ? '#111' : '#fff'; };
 const PALETTE = ['#7cc4ff','#ff9f7c','#9be08a','#d4a5ff','#ffd36b','#6be0d4','#ff8fc2'];
@@ -565,7 +571,9 @@ function renderCalendar() {
   /* who an event belongs to: its own Google colour (named in settings), else its calendar */
   const who = e => {
     if (e.color && GCOLOUR[e.color]) return { color: GCOLOUR[e.color][2], name: String(cfg['colour_' + e.color] || '').trim() };
-    return { color: e.cal.color, name: (multi && e.cal.label) || String(cfg.colour_0 || '').trim() };
+    const n0 = String(cfg.colour_0 || '').trim();
+    if (n0 || !multi) return { color: cfg.colour0Hex || '#d81b60', name: n0 };   // all uncoloured events look the same
+    return { color: e.cal.color, name: e.cal.label };
   };
   const now = new Date(), today = startOfDay(now);
   const events = [];
@@ -771,7 +779,7 @@ const FIELDS = [
   ['colour_1', 'Lavender', 'colour', '#7986cb'],
   ['colour_3', 'Grape', 'colour', '#8e24aa'],
   ['colour_8', 'Graphite', 'colour', '#616161'],
-  ['colour_0', 'No colour chosen (calendar’s own colour)', 'colour', 'linear-gradient(135deg,#7cc4ff,#9be08a)'],
+  ['colour_0', 'No colour chosen (uses the calendar’s colour)', 'colour0', ''],
   ['Todoist'],
   ['todoistToken', 'API token', 'text', 'Todoist → Settings → Integrations → Developer', true],
   ['shoppingProject', 'Shopping project', 'text', 'Sections become aisle headings'],
@@ -807,6 +815,15 @@ function openSettings() {
       return;
     }
     if (f[2] === 'note') { h += '<small style="grid-column:1/-1;font-size:.85rem;color:var(--muted)">' + esc(f[1]) + '</small>'; return; }
+    if (f[2] === 'colour0') {
+      const cur = cfg.colour0Hex || '#d81b60';
+      h += '<label class="wide">' + esc(f[1]) + '<span style="display:flex;gap:.6rem;align-items:center">' +
+        '<i class="sw" id="sw0" style="width:1.4rem;height:1.4rem;background:' + esc(cur) + '"></i>' +
+        '<select name="colour0Hex">' + CALCOLOURS.map(c => '<option value="' + c[1] + '"' + (c[1] === cur ? ' selected' : '') + '>' + esc(c[0]) + '</option>').join('') + '</select>' +
+        '<input name="colour_0" value="' + esc(cfg.colour_0 || '') + '" placeholder="Name, e.g. Family" autocapitalize="words" spellcheck="false" style="flex:1"></span>' +
+        '<small>Pick the colour these events have in Google Calendar, and who they belong to.</small></label>';
+      return;
+    }
     if (f[2] === 'colour') {
       h += '<label><span style="display:flex;gap:.5rem;align-items:center"><i class="sw" style="width:1.1rem;height:1.1rem;background:' + f[3] + '"></i>' + esc(f[1]) + '</span>' +
         '<input name="' + f[0] + '" value="' + esc(cfg[f[0]] || '') + '" placeholder="Name, e.g. Dad" autocapitalize="words" spellcheck="false"></label>';
@@ -846,6 +863,9 @@ function formValues() {
   return out;
 }
 
+$('#settings').addEventListener('change', e => {
+  if (e.target.name === 'colour0Hex' && $('#sw0')) $('#sw0').style.background = e.target.value;
+});
 $('#settings').addEventListener('click', async e => {
   const b = e.target.closest('[data-s]'); if (!b) return;
   const a = b.dataset.s;

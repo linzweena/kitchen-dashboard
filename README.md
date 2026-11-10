@@ -36,7 +36,7 @@ The two other options (API key, and Google sign-in) are kept for advanced use. T
 Use **Backup & diagnostics** in settings to export the settings as JSON. The same panel shows the recent error log.
 
 ## Who's who in the calendar
-If the family shares one Google calendar, give each person's events their own colour in Google Calendar. On the board, open Settings → **Who's who (event colours)** and type each person's name next to their colour. Every event then shows a coloured name tag, and the top of the calendar panel shows a key. Events with no colour of their own use the name in "No colour chosen". If you use a separate calendar per person, the board uses each calendar's name instead.
+If the family shares one Google calendar, give each person's events their own colour in Google Calendar. On the board, open Settings → **Who's who (event colours)** and type each person's name next to their colour. Every event then shows a coloured name tag, and the top of the calendar panel shows a key. Events with no colour of their own (they show in their calendar's colour in Google, e.g. Cherry blossom) all use the name and colour set in "No colour chosen". If you use a separate calendar per person, the board uses each calendar's name instead.
 
 The calendar lists the next 30 days (change this in Settings → Days to show, up to 31). Empty days after tomorrow are skipped. Swipe the panel to scroll; after 2 minutes untouched, every list scrolls back to the top.
 
