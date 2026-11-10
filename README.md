@@ -42,6 +42,21 @@ Photos come from a Google Drive folder called **Kitchen Board Photos**. The Goog
 
 To change how long before it starts, or how long each photo shows, go to Settings → Photo screen saver. Set "Start after" to 0 to turn the slideshow off.
 
+## Seasonal decorations
+Animated decorations appear by themselves at certain times of year:
+
+| When | Decoration |
+|---|---|
+| 24–31 October | Halloween: bats and ghosts, pumpkins by the date |
+| 5 November | Bonfire Night: fireworks |
+| November (other days) | Falling autumn leaves |
+| December | Snow, twinkling lights along the top, Christmas tree |
+| Palm Sunday to Easter Monday | Easter eggs, chicks and tulips (the dates are worked out for each year) |
+| 14 February | Valentine's hearts |
+| Birthdays (9 Jan, 20 Feb, 25 Aug) | Coloured balloons and a "Happy birthday!" banner |
+
+Taps go straight through the decorations, and they switch off at night. In Settings → Seasonal decorations you can turn them off, edit the birthday list (`day/month | Name`, one per line; adding a name personalises the banner), or preview any decoration for a minute.
+
 ## How it keeps running on its own
 - Every dataset is cached on the tablet. When a fetch fails, the board keeps showing the last good data, and the status bar says how old it is.
 - After a failure it retries with backoff (30 s → 1 min → 2 min … up to the normal refresh interval). It refreshes straight away when the network comes back or the screen wakes.

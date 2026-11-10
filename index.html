@@ -123,6 +123,34 @@ body.night .ev.past{opacity:.25}
 #sv-items .lbl{opacity:.65;font-size:.85rem;text-transform:uppercase;letter-spacing:.1em;margin-right:.5rem}
 #sv-items .over{color:#ff9b9b}
 @media (orientation:portrait){#saver-info{flex-direction:column;align-items:flex-start;gap:1rem}#sv-items{margin-left:0;align-items:flex-start;text-align:left;max-width:100%}}
+
+/* seasonal decorations — purely visual, never catch taps */
+#decor{position:fixed;inset:0;pointer-events:none;z-index:6;overflow:hidden}
+body.night #decor,body.night #decor-head{display:none}
+#decor .p{position:absolute;top:0;left:var(--x);font-size:var(--size);opacity:.85;will-change:transform;
+  animation:var(--anim) var(--dur) linear var(--delay) infinite}
+#decor .p>span{display:inline-block;animation:kb-sway calc(var(--dur)/4) ease-in-out infinite alternate}
+@keyframes kb-fall{from{transform:translateY(-12vh) rotate(0)}to{transform:translateY(112vh) rotate(var(--spin,200deg))}}
+@keyframes kb-rise{from{transform:translateY(112vh)}to{transform:translateY(-18vh)}}
+@keyframes kb-fly{0%{transform:translate(-12vw,var(--y))}50%{transform:translate(50vw,calc(var(--y) - 6vh))}100%{transform:translate(112vw,var(--y))}}
+@keyframes kb-sway{from{transform:translateX(calc(var(--drift) * -1))}to{transform:translateX(var(--drift))}}
+#decor .p.fly{left:0}
+#decor .p.fly>span{animation-name:kb-flap;animation-duration:.5s}
+@keyframes kb-flap{from{transform:scaleY(1)}to{transform:scaleY(.6)}}
+#decor .snow{color:#fff;text-shadow:0 0 6px rgba(255,255,255,.6)}
+/* fireworks */
+#decor .fw{position:absolute;width:0;height:0}
+#decor .fw i{position:absolute;left:0;top:0;width:6px;height:6px;margin:-3px;border-radius:50%;background:var(--c);box-shadow:0 0 8px var(--c),0 0 14px var(--c);
+  animation:kb-burst 1.6s cubic-bezier(.15,.7,.3,1) forwards}
+@keyframes kb-burst{0%{transform:rotate(var(--a)) translateX(0);opacity:1}70%{opacity:1}100%{transform:rotate(var(--a)) translateX(var(--r)) translateY(30px);opacity:0}}
+/* christmas lights */
+#decor .lights{position:absolute;left:0;right:0;top:-2px;height:22px;display:flex;justify-content:space-around;
+  background:radial-gradient(ellipse at 50% -40%,transparent 60%,rgba(40,70,40,.9) 62%,transparent 66%) 0 0/60px 22px repeat-x}
+#decor .lights b{width:9px;height:13px;margin-top:8px;border-radius:50% 50% 50% 50%/60% 60% 40% 40%;background:var(--c);box-shadow:0 0 10px var(--c);
+  animation:kb-twinkle 1.6s ease-in-out infinite alternate;animation-delay:var(--d)}
+@keyframes kb-twinkle{from{opacity:1}to{opacity:.25}}
+#decor-head{flex:1;text-align:center;font-size:1.6rem;padding-bottom:.25rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#decor-head .msg{font-size:1.3rem;font-weight:600;color:#ffd36b;margin:0 .5rem;vertical-align:middle}
 </style>
 </head>
 <body>
@@ -130,6 +158,7 @@ body.night .ev.past{opacity:.25}
   <header>
     <div id="clock">--:--</div>
     <div id="date"></div>
+    <div id="decor-head"></div>
     <div id="status"></div>
   </header>
   <div id="banner" hidden></div>
@@ -145,6 +174,7 @@ body.night .ev.past{opacity:.25}
   </main>
 </div>
 <div id="settings" hidden></div>
+<div id="decor"></div>
 <div id="saver" hidden>
   <div class="layer"><img class="bg" alt=""><img class="fg" alt=""></div>
   <div class="layer"><img class="bg" alt=""><img class="fg" alt=""></div>
@@ -190,7 +220,9 @@ const DEFAULTS = {
   dayBrightness: '', nightBrightness: '10',   // Fully Kiosk brightness 0–255; blank = leave alone
   reloadAt: '03:30',
   photoIdleMinutes: '5',            // photo screen saver: minutes untouched before it starts; 0 = off
-  photoSeconds: '20'                // seconds per photo
+  photoSeconds: '20',               // seconds per photo
+  decorations: 'on',
+  birthdays: '09/01\n20/02\n25/08'   // one per line: DD/MM | Name (name optional)
 };
 let cfg = Object.assign({}, DEFAULTS, store.get(K.cfg, {}));
 const PALETTE = ['#7cc4ff','#ff9f7c','#9be08a','#d4a5ff','#ffd36b','#6be0d4','#ff8fc2'];
@@ -705,7 +737,11 @@ const FIELDS = [
   ['nightBrightness', 'Night brightness (0–255)', 'text', 'Fully Kiosk only'],
   ['Photo screen saver'],
   ['photoIdleMinutes', 'Start after (minutes untouched)', 'number', '0 = off. Photos come from the “Kitchen Board Photos” folder in Google Drive.'],
-  ['photoSeconds', 'Seconds per photo', 'number', '']
+  ['photoSeconds', 'Seconds per photo', 'number', ''],
+  ['Seasonal decorations'],
+  ['decorations', 'Decorations', 'select', { on: 'On', off: 'Off' }],
+  ['birthdays', 'Birthdays', 'textarea', 'One per line:  day/month | Name   e.g.  09/01 | Sam   (the name is optional)'],
+  ['decorPreview', '']
 ];
 
 function openSettings() {
@@ -713,6 +749,11 @@ function openSettings() {
   let h = '<div class="sheet"><header><h3>Kitchen Board settings</h3><span class="sp"></span><button data-s="close">Cancel</button><button class="primary" data-s="save">Save &amp; restart</button></header><div class="scroll">';
   FIELDS.forEach(f => {
     if (f.length === 1) { h += (h.includes('<fieldset') ? '</fieldset>' : '') + '<fieldset><legend>' + esc(f[0]) + '</legend>'; return; }
+    if (f[0] === 'decorPreview') {
+      h += '<div class="row"><select id="decor-pick">' + Object.keys(THEMES).map(t => '<option value="' + t + '">' + esc(THEMES[t].label) + '</option>').join('') +
+        '</select><button type="button" data-s="preview">Preview for 1 minute</button></div>';
+      return;
+    }
     const [k, label, type, help, wide] = f, v = cfg[k];
     h += '<label class="' + (wide ? 'wide' : '') + '">' + esc(label);
     if (type === 'select') h += '<select name="' + k + '">' + Object.keys(help).map(o => '<option value="' + o + '"' + (v === o ? ' selected' : '') + '>' + esc(help[o]) + '</option>').join('') + '</select>';
@@ -754,6 +795,7 @@ $('#settings').addEventListener('click', async e => {
   if (a === 'save') { store.set(K.cfg, Object.assign({}, cfg, formValues())); location.reload(); }
   if (a === 'reload') location.reload();
   if (a === 'refresh') { refreshAll(0); $('#settings').hidden = true; }
+  if (a === 'preview') { decor.preview = { key: $('#decor-pick').value, name: 'Sam', until: Date.now() + 60e3 }; $('#settings').hidden = true; applyDecor(); return; }
   if (a === 'photos') { b.textContent = 'Fetching…'; await syncPhotos(); b.textContent = photos.err ? 'Failed: ' + photos.err : photos.have.size + ' photos ready'; }
   if (a === 'clear' && confirm('Clear cached calendar and list data? (Settings are kept.)')) { Object.keys(SOURCES).forEach(k => store.del(K.cache + k)); location.reload(); }
   if (a === 'import') {
@@ -809,6 +851,7 @@ function applyNight() {
   if (night === state.night) return;
   state.night = night;
   if (night) stopSaver();
+  decor.current = 'x'; setTimeout(applyDecor, 0);
   document.body.classList.toggle('night', night);
   setBrightness(night ? cfg.nightBrightness : cfg.dayBrightness);
 }
@@ -852,6 +895,8 @@ function tick() {
     if (st.running && Date.now() - st.startedAt > 3 * 60e3) { st.running = false; log(k + ' run hung, resetting'); }
     if (!st.running && Date.now() - st.lastAttempt > refreshMs() * 2 + 5 * 60e3) { log(k + ' timer lost, re-arming'); schedule(k, 0); }
   });
+
+  applyDecor();
 
   // photo list: re-check every 6 h, or every 30 min while photos are still downloading
   if (photosEnabled() && !photos.syncing && Date.now() - photos.lastSync > (photos.have.size < photos.list.length ? 30 : 360) * 60e3) syncPhotos();
@@ -1011,6 +1056,98 @@ document.addEventListener('pointerdown', e => {
   if (photos.active) { stopSaver(); swallowClick = true; e.stopPropagation(); }
 }, true);
 document.addEventListener('keydown', () => { photos.lastTouch = Date.now(); }, true);
+
+/* =====================================================================
+   Seasonal decorations. Everything is emoji + CSS animation (no downloads),
+   drawn on a layer that ignores touches, and hidden during night mode.
+   ===================================================================== */
+const THEMES = {
+  halloween: { label: 'Halloween',      head: '🎃 🦇 🎃', fly: ['🦇', '🦇', '👻'], count: 6 },
+  bonfire:   { label: 'Bonfire Night',  head: '🎆 🔥 🎆', fireworks: true, fall: ['✨'], count: 4 },
+  autumn:    { label: 'Autumn leaves',  head: '🍂', fall: ['🍂', '🍁', '🍂', '🍃'], count: 11 },
+  christmas: { label: 'Christmas',      head: '🎄 🎁 🎄', fall: ['❄', '❅', '❆', '•'], snow: true, count: 20, lights: true },
+  easter:    { label: 'Easter',         head: '🐰 🥚 🌷', fall: ['🥚', '🐣', '🌷', '🐰', '🥚'], count: 10 },
+  valentine: { label: 'Valentine’s Day', head: '💘', rise: ['❤️', '💕', '💖', '💗'], count: 12 },
+  birthday:  { label: 'Birthday',       head: '🎉', msg: true, rise: ['🎈'], balloons: true, count: 12, fall: ['🎊'] }
+};
+const decor = { current: '', fwTimer: null, preview: null };
+
+function easterSunday(y) {     // Anonymous Gregorian algorithm
+  const a = y % 19, b = Math.floor(y / 100), c = y % 100, d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25),
+    g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30, i = Math.floor(c / 4), k = c % 4,
+    l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451),
+    month = Math.floor((h + l - 7 * m + 114) / 31), day = ((h + l - 7 * m + 114) % 31) + 1;
+  return new Date(y, month - 1, day);
+}
+
+function birthdaysToday(d) {
+  return String(cfg.birthdays || '').split('\n').map(l => {
+    const m = /^\s*(\d{1,2})\s*[\/.\-]\s*(\d{1,2})\s*(?:\|\s*(.*))?$/.exec(l); if (!m) return null;
+    return { d: +m[1], m: +m[2], name: (m[3] || '').trim() };
+  }).filter(b => b && b.d === d.getDate() && b.m === d.getMonth() + 1);
+}
+
+function pickTheme(d) {
+  if (decor.preview && Date.now() < decor.preview.until) return decor.preview;
+  decor.preview = null;
+  if (cfg.decorations === 'off') return null;
+  const month = d.getMonth() + 1, md = month * 100 + d.getDate();
+  const bdays = birthdaysToday(d);
+  if (bdays.length) return { key: 'birthday', name: bdays.map(b => b.name).filter(Boolean).join(' & ') };
+  if (md === 214) return { key: 'valentine' };
+  if (md === 1105) return { key: 'bonfire' };
+  const fromEaster = Math.round((startOfDay(d) - easterSunday(d.getFullYear())) / 864e5);
+  if (fromEaster >= -7 && fromEaster <= 1) return { key: 'easter' };
+  if (md >= 1024 && md <= 1031) return { key: 'halloween' };
+  if (month === 11) return { key: 'autumn' };
+  if (month === 12) return { key: 'christmas' };
+  return null;
+}
+
+const rnd = (a, b) => a + Math.random() * (b - a);
+function particle(ch, anim, extra) {
+  const dur = extra.dur || rnd(11, 20);
+  const style = '--x:' + rnd(0, 96).toFixed(1) + '%;--size:' + (extra.size || rnd(1.4, 2.6)).toFixed(2) + 'rem;--anim:' + anim +
+    ';--dur:' + dur.toFixed(1) + 's;--delay:-' + rnd(0, dur).toFixed(1) + 's;--drift:' + rnd(10, 40).toFixed(0) + 'px;--spin:' + rnd(-360, 360).toFixed(0) + 'deg;' +
+    (extra.y ? '--y:' + extra.y + ';' : '') + (extra.filter ? 'filter:' + extra.filter + ';' : '');
+  return '<span class="p ' + (extra.cls || '') + '" style="' + style + '"><span>' + ch + '</span></span>';
+}
+
+function applyDecor() {
+  const th = state.night ? null : pickTheme(new Date());
+  const sig = th ? th.key + '|' + (th.name || '') : '';
+  if (sig === decor.current) return;
+  decor.current = sig;
+  clearInterval(decor.fwTimer); decor.fwTimer = null;
+  const layer = $('#decor'), head = $('#decor-head');
+  if (!th) { layer.innerHTML = ''; head.innerHTML = ''; return; }
+  const t = THEMES[th.key]; let h = '';
+  const pick = arr => arr[Math.floor(Math.random() * arr.length)];
+  for (let i = 0; i < t.count; i++) {
+    if (t.fly) h += particle(pick(t.fly), 'kb-fly', { cls: 'fly', dur: rnd(14, 26), y: rnd(8, 70).toFixed(0) + 'vh', size: rnd(1.6, 2.4) });
+    if (t.rise) h += particle(pick(t.rise), 'kb-rise', { dur: rnd(12, 22), size: t.balloons ? rnd(2.2, 3.4) : rnd(1.3, 2.2),
+      filter: t.balloons ? 'hue-rotate(' + Math.floor(rnd(0, 360)) + 'deg) saturate(1.3)' : '' });
+    if (t.fall && (!t.rise || i % 3 === 0)) h += particle(pick(t.fall), 'kb-fall', { cls: t.snow ? 'snow' : '', size: t.snow ? rnd(.7, 1.8) : undefined, dur: t.snow ? rnd(9, 18) : undefined });
+  }
+  if (t.lights) {
+    h += '<div class="lights">' + Array.from({ length: 28 }, (_, i) =>
+      '<b style="--c:' + ['#ff5a5a', '#ffd36b', '#5fd38d', '#7cc4ff', '#ff8fc2'][i % 5] + ';--d:-' + rnd(0, 1.6).toFixed(2) + 's"></b>').join('') + '</div>';
+  }
+  layer.innerHTML = h;
+  head.innerHTML = t.msg ? t.head + '<span class="msg">Happy birthday' + (th.name ? ', ' + esc(th.name) : '') + '!</span>🎂' : t.head;
+  if (t.fireworks) { decor.fwTimer = setInterval(firework, 1400); firework(); }
+}
+
+function firework() {
+  if (state.night || !document.querySelector('#decor')) return;
+  const fw = document.createElement('div'); fw.className = 'fw';
+  fw.style.left = rnd(10, 90) + '%'; fw.style.top = rnd(8, 50) + '%';
+  const hue = Math.floor(rnd(0, 360)), n = 16, r = Math.floor(rnd(70, 140));
+  fw.innerHTML = Array.from({ length: n }, (_, i) =>
+    '<i style="--a:' + (i * 360 / n) + 'deg;--r:' + r + 'px;--c:hsl(' + (hue + (i % 2) * 40) + ',100%,65%)"></i>').join('');
+  $('#decor').appendChild(fw);
+  setTimeout(() => fw.remove(), 1800);
+}
 
 /* =====================================================================
    Demo data (shown until something is configured)
