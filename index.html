@@ -1002,13 +1002,70 @@ try { if (window.fully && fully.bind) { fully.bind('screenOn', 'refreshAll(2000)
    fetched through the Apps Script helper and kept on the tablet (Cache Storage),
    so the slideshow also works offline.
    ===================================================================== */
-const PHOTO_CACHE = 'kb-photos-v1';
+const PHOTO_CACHE = 'kb-photos-v2';      // v2: photos stored already turned the right way up
 const photos = { list: store.get('kb.photos', []), have: new Set(), bad: new Set(), lastSync: 0, syncing: false, err: '',
   active: false, order: [], idx: 0, next: 0, lastTouch: Date.now(), urls: [], layer: 0 };
 const photosEnabled = () => cfg.calendarMode === 'script' && !!String(cfg.calendarScriptUrl || '').trim() && Number(cfg.photoIdleMinutes) > 0;
 const helperUrl = q => { const u = String(cfg.calendarScriptUrl).trim(); return u + (u.includes('?') ? '&' : '?') + q; };
 const photoKey = id => new URL('photo-cache/' + encodeURIComponent(id), location.href).href;
 async function photoCache() { try { return 'caches' in window ? await caches.open(PHOTO_CACHE) : null; } catch (e) { return null; } }
+
+/* Phones often save photos sideways plus an EXIF note saying which way up they go.
+   Some WebViews ignore that note, so read it ourselves, turn the pixels the right way
+   up on a canvas, and store a plain upright JPEG (also shrunk to at most 1600px). */
+function jpegOrientation(b) {
+  if (b[0] !== 0xFF || b[1] !== 0xD8) return { o: 1 };
+  let i = 2;
+  while (i + 10 < b.length) {
+    if (b[i] !== 0xFF) return { o: 1 };
+    const marker = b[i + 1], len = (b[i + 2] << 8) | b[i + 3];
+    if (marker === 0xE1 && b[i + 4] === 0x45 && b[i + 5] === 0x78 && b[i + 6] === 0x69 && b[i + 7] === 0x66) {
+      const t = i + 10, le = b[t] === 0x49;
+      const r16 = o => le ? b[o] | (b[o + 1] << 8) : (b[o] << 8) | b[o + 1];
+      const r32 = o => (le ? (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24)) : ((b[o] << 24) | (b[o + 1] << 16) | (b[o + 2] << 8) | b[o + 3])) >>> 0;
+      const ifd = t + r32(t + 4), n = r16(ifd);
+      for (let k = 0; k < n; k++) { const e = ifd + 2 + k * 12; if (r16(e) === 0x0112) return { o: r16(e + 8), pos: e + 8, le }; }
+      return { o: 1 };
+    }
+    if (marker === 0xDA) break;
+    i += 2 + len;
+  }
+  return { o: 1 };
+}
+const loadImg = url => new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = url; });
+async function normalisePhoto(blob) {
+  let url = null;
+  try {
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    const info = jpegOrientation(bytes), o = info.o >= 1 && info.o <= 8 ? info.o : 1;
+    if (info.pos) { bytes[info.pos] = info.le ? 1 : 0; bytes[info.pos + 1] = info.le ? 0 : 1; }   // neutralise the note so every browser shows raw pixels
+    url = URL.createObjectURL(new Blob([bytes], { type: blob.type || 'image/jpeg' }));
+    const img = await loadImg(url);
+    const w = img.naturalWidth, h = img.naturalHeight, scale = Math.min(1, 1600 / Math.max(w, h));
+    if (o === 1 && scale === 1) return blob;
+    const sw = Math.round(w * scale), sh = Math.round(h * scale), swap = o >= 5;
+    const c = document.createElement('canvas'); c.width = swap ? sh : sw; c.height = swap ? sw : sh;
+    const x = c.getContext('2d');
+    const T = { 2: [-1, 0, 0, 1, sw, 0], 3: [-1, 0, 0, -1, sw, sh], 4: [1, 0, 0, -1, 0, sh], 5: [0, 1, 1, 0, 0, 0],
+      6: [0, 1, -1, 0, sh, 0], 7: [0, -1, -1, 0, sh, sw], 8: [0, -1, 1, 0, 0, sw] }[o];
+    if (T) x.transform.apply(x, T);
+    x.drawImage(img, 0, 0, sw, sh);
+    return await new Promise(r => c.toBlob(nb => r(nb || blob), 'image/jpeg', 0.88));
+  } catch (e) { return blob; }
+  finally { if (url) URL.revokeObjectURL(url); }
+}
+/* one-off: turn photos saved by the previous version upright, without downloading them again */
+async function migratePhotoCache() {
+  try {
+    if (!('caches' in window) || !(await caches.has('kb-photos-v1'))) return;
+    const oldC = await caches.open('kb-photos-v1'), newC = await caches.open(PHOTO_CACHE);
+    for (const req of await oldC.keys()) {
+      const res = await oldC.match(req); if (!res) continue;
+      await newC.put(req.url, new Response(await normalisePhoto(await res.blob()), { headers: { 'Content-Type': 'image/jpeg' } }));
+    }
+    await caches.delete('kb-photos-v1'); log('photos turned upright');
+  } catch (e) { log('photo upgrade: ' + e.message); }
+}
 
 async function refreshHave() {
   const cache = await photoCache(); const have = new Set();
@@ -1037,7 +1094,8 @@ async function syncPhotos() {
         if (!p || !p.data) throw new Error(p && p.error || 'no picture returned');
         const bin = atob(p.data), bytes = new Uint8Array(bin.length);
         for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-        await cache.put(photoKey(id), new Response(new Blob([bytes], { type: p.mime || 'image/jpeg' })));
+        const upright = await normalisePhoto(new Blob([bytes], { type: p.mime || 'image/jpeg' }));
+        await cache.put(photoKey(id), new Response(upright, { headers: { 'Content-Type': upright.type || 'image/jpeg' } }));
       } catch (e) {
         if (e instanceof TypeError || e.message === 'timed out') throw e;    // offline: stop, try later
         photos.bad.add(id); log('photo skipped: ' + errMsg(e));
@@ -1276,7 +1334,7 @@ function loadDemo() {
   Object.keys(SOURCES).forEach((k, i) => schedule(k, 500 + i * 1500));
   if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(e => log('sw: ' + e.message));
   if (/[?&]settings\b/.test(location.search)) openSettings();
-  refreshHave().then(() => { if (photosEnabled()) setTimeout(syncPhotos, 20000); });
+  migratePhotoCache().then(refreshHave).then(() => { if (photosEnabled()) setTimeout(syncPhotos, 20000); });
   log('started' + (state.demo ? ' (demo)' : ''));
 })();
 </script>
