@@ -76,6 +76,7 @@ Taps go straight through the decorations, and they switch off at night. In Setti
 - A watchdog restarts refreshes that stall. The page also reloads itself once a day (03:30 by default) to clear memory, but only if the page can be fetched.
 - Night mode dims the display. If you're running Fully Kiosk, it also lowers the screen brightness. The first touch at night only wakes the screen; it never ticks anything off.
 - Every 10 minutes the layout shifts a few pixels to prevent screen burn-in.
+- While another app is in front (Netflix, BBC Sounds…), the board pauses its animations, slideshow and redraws so it doesn't slow that app down. Data still refreshes quietly in the background.
 
 ## Recommended Fully Kiosk settings
 - Web Content → Start URL: your hosted URL

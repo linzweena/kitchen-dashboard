@@ -158,6 +158,7 @@ body.night #decor,body.night #decor-head{display:none}
 @keyframes kb-twinkle{from{opacity:1}to{opacity:.25}}
 #decor-head{flex:1;text-align:center;font-size:1.6rem;padding-bottom:.25rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #decor-head .msg{font-size:1.3rem;font-weight:600;color:#ffd36b;margin:0 .5rem;vertical-align:middle}
+body.paused *{animation-play-state:paused!important}
 </style>
 </head>
 <body>
@@ -958,6 +959,7 @@ async function safeReload(reason) {
 let lastMinute = -1, lastDay = ymd(new Date());
 function tick() {
   const now = new Date();
+  if (board.paused) return;           // nothing to draw while another app is in front
   $('#clock').textContent = fmtTime(now);
   try { saverTick(now); } catch (e) { log('saver: ' + e.message); stopSaver(); }
   if (now.getMinutes() === lastMinute) return;
@@ -1303,7 +1305,31 @@ function particle(ch, anim, extra) {
   return '<span class="p ' + (extra.cls || '') + '" style="' + style + '"><span>' + ch + '</span></span>';
 }
 
+/* While another app is in front (Netflix, BBC Sounds…) the board goes quiet: no animations,
+   no slideshow, no redraws. Data still refreshes quietly so it's up to date on return. */
+const board = { paused: false };
+function pauseBoard() {
+  if (board.paused) return;
+  board.paused = true;
+  stopSaver();
+  clearInterval(decor.fwTimer); decor.fwTimer = null;
+  $('#decor').innerHTML = ''; decor.current = 'paused';
+  document.body.classList.add('paused');
+}
+function resumeBoard() {
+  if (!board.paused) return;
+  board.paused = false;
+  document.body.classList.remove('paused');
+  decor.current = ''; photos.lastTouch = Date.now();
+  applyDecor(); tick();
+}
+document.addEventListener('visibilitychange', () => document.visibilityState === 'hidden' ? pauseBoard() : resumeBoard());
+window.addEventListener('blur', pauseBoard);
+window.addEventListener('focus', resumeBoard);
+document.addEventListener('pointerdown', resumeBoard, true);
+
 function applyDecor() {
+  if (board.paused) return;
   const th = state.night ? null : pickTheme(new Date());
   const sig = th ? th.key + '|' + (th.name || '') : '';
   if (sig === decor.current) return;
@@ -1329,7 +1355,7 @@ function applyDecor() {
 }
 
 function firework() {
-  if (state.night || !document.querySelector('#decor')) return;
+  if (board.paused || state.night || !document.querySelector('#decor')) return;
   const fw = document.createElement('div'); fw.className = 'fw';
   fw.style.left = rnd(10, 90) + '%'; fw.style.top = rnd(8, 50) + '%';
   const hue = Math.floor(rnd(0, 360)), n = 16, r = Math.floor(rnd(70, 140));
