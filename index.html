@@ -222,7 +222,9 @@ const DEFAULTS = {
   photoIdleMinutes: '5',            // photo screen saver: minutes untouched before it starts; 0 = off
   photoSeconds: '20',               // seconds per photo
   decorations: 'on',
-  birthdays: '09/01\n20/02\n25/08'   // one per line: DD/MM | Name (name optional)
+  birthdays: '09/01\n20/02\n25/08',  // one per line: DD/MM | Name (name optional)
+  anniversaries: '05/05',            // same format
+  summerHolidays: '22/07 - 03/09'    // DD/MM - DD/MM
 };
 let cfg = Object.assign({}, DEFAULTS, store.get(K.cfg, {}));
 const PALETTE = ['#7cc4ff','#ff9f7c','#9be08a','#d4a5ff','#ffd36b','#6be0d4','#ff8fc2'];
@@ -741,6 +743,8 @@ const FIELDS = [
   ['Seasonal decorations'],
   ['decorations', 'Decorations', 'select', { on: 'On', off: 'Off' }],
   ['birthdays', 'Birthdays', 'textarea', 'One per line:  day/month | Name   e.g.  09/01 | Sam   (the name is optional)'],
+  ['anniversaries', 'Anniversaries', 'textarea', 'Same format, e.g.  05/05 | Mum & Dad'],
+  ['summerHolidays', 'Summer holidays', 'text', 'day/month - day/month, e.g. 22/07 - 03/09'],
   ['decorPreview', '']
 ];
 
@@ -1068,7 +1072,12 @@ const THEMES = {
   christmas: { label: 'Christmas',      head: '🎄 🎁 🎄', fall: ['❄', '❅', '❆', '•'], snow: true, count: 20, lights: true },
   easter:    { label: 'Easter',         head: '🐰 🥚 🌷', fall: ['🥚', '🐣', '🌷', '🐰', '🥚'], count: 10 },
   valentine: { label: 'Valentine’s Day', head: '💘', rise: ['❤️', '💕', '💖', '💗'], count: 12 },
-  birthday:  { label: 'Birthday',       head: '🎉', msg: true, rise: ['🎈'], balloons: true, count: 12, fall: ['🎊'] }
+  birthday:  { label: 'Birthday',       head: '🎉', msg: 'Happy birthday', names: true, tail: '🎂', rise: ['🎈'], balloons: true, count: 12, fall: ['🎊'] },
+  newyear:   { label: 'New Year’s Eve', head: '🥂 🎆 🥂', fireworks: true, fall: ['✨', '🎊'], count: 5 },
+  mothers:   { label: 'Mother’s Day',   head: '💐', msg: 'Happy Mother’s Day!', tail: '🌸', rise: ['🌸', '🌷', '💐', '💗'], count: 12 },
+  fathers:   { label: 'Father’s Day',   head: '🏆', msg: 'Happy Father’s Day!', tail: '⭐', fall: ['⭐', '👔', '🏆', '🎉'], count: 10 },
+  anniversary: { label: 'Anniversary',  head: '💍', msg: 'Happy anniversary', names: true, tail: '🥂', rise: ['💕', '💖', '💍', '🥂'], count: 12 },
+  summer:    { label: 'Summer holidays', head: '☀️ 🏖️ 🍦', fly: ['🦋', '🪁', '🦋', '🐝'], count: 6 }
 };
 const decor = { current: '', fwTimer: null, preview: null };
 
@@ -1080,8 +1089,8 @@ function easterSunday(y) {     // Anonymous Gregorian algorithm
   return new Date(y, month - 1, day);
 }
 
-function birthdaysToday(d) {
-  return String(cfg.birthdays || '').split('\n').map(l => {
+function datesToday(list, d) {
+  return String(list || '').split('\n').map(l => {
     const m = /^\s*(\d{1,2})\s*[\/.\-]\s*(\d{1,2})\s*(?:\|\s*(.*))?$/.exec(l); if (!m) return null;
     return { d: +m[1], m: +m[2], name: (m[3] || '').trim() };
   }).filter(b => b && b.d === d.getDate() && b.m === d.getMonth() + 1);
@@ -1092,13 +1101,21 @@ function pickTheme(d) {
   decor.preview = null;
   if (cfg.decorations === 'off') return null;
   const month = d.getMonth() + 1, md = month * 100 + d.getDate();
-  const bdays = birthdaysToday(d);
-  if (bdays.length) return { key: 'birthday', name: bdays.map(b => b.name).filter(Boolean).join(' & ') };
+  const names = l => l.map(b => b.name).filter(Boolean).join(' & ');
+  const bdays = datesToday(cfg.birthdays, d);
+  if (bdays.length) return { key: 'birthday', name: names(bdays) };
+  const anniv = datesToday(cfg.anniversaries, d);
+  if (anniv.length) return { key: 'anniversary', name: names(anniv) };
+  const fromEaster = Math.round((startOfDay(d) - easterSunday(d.getFullYear())) / 864e5);
+  if (fromEaster === -21) return { key: 'mothers' };                    // UK Mothering Sunday
+  if (month === 6 && d.getDay() === 0 && d.getDate() >= 15 && d.getDate() <= 21) return { key: 'fathers' };   // third Sunday in June
   if (md === 214) return { key: 'valentine' };
   if (md === 1105) return { key: 'bonfire' };
-  const fromEaster = Math.round((startOfDay(d) - easterSunday(d.getFullYear())) / 864e5);
+  if (md === 1231) return { key: 'newyear' };
   if (fromEaster >= -7 && fromEaster <= 1) return { key: 'easter' };
   if (md >= 1024 && md <= 1031) return { key: 'halloween' };
+  const sh = /(\d{1,2})\s*[\/.]\s*(\d{1,2})\s*[-–to ]+\s*(\d{1,2})\s*[\/.]\s*(\d{1,2})/.exec(String(cfg.summerHolidays || ''));
+  if (sh && md >= +sh[2] * 100 + +sh[1] && md <= +sh[4] * 100 + +sh[3]) return { key: 'summer' };
   if (month === 11) return { key: 'autumn' };
   if (month === 12) return { key: 'christmas' };
   return null;
@@ -1134,7 +1151,7 @@ function applyDecor() {
       '<b style="--c:' + ['#ff5a5a', '#ffd36b', '#5fd38d', '#7cc4ff', '#ff8fc2'][i % 5] + ';--d:-' + rnd(0, 1.6).toFixed(2) + 's"></b>').join('') + '</div>';
   }
   layer.innerHTML = h;
-  head.innerHTML = t.msg ? t.head + '<span class="msg">Happy birthday' + (th.name ? ', ' + esc(th.name) : '') + '!</span>🎂' : t.head;
+  head.innerHTML = t.msg ? t.head + '<span class="msg">' + esc(t.names ? t.msg + (th.name ? ', ' + th.name : '') + '!' : t.msg) + '</span>' + (t.tail || '') : t.head;
   if (t.fireworks) { decor.fwTimer = setInterval(firework, 1400); firework(); }
 }
 
