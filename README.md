@@ -45,6 +45,8 @@ When nobody has touched the screen for 5 minutes, the board shows a slideshow of
 
 Photos come from a Google Drive folder called **Kitchen Board Photos**. The Google helper (`google-apps-script.js`) creates that folder the first time the board asks for photos. Anyone the folder is shared with can add pictures from their phone. The tablet keeps its own copy of each photo, so the slideshow still works offline. When a photo is removed from the folder, it disappears from the board too.
 
+If a photo shows the wrong way round, tap the ↻ button in the top-right corner of the slideshow: each tap turns it a quarter turn, and the board remembers it for that photo. Photos are also turned upright automatically when the phone saved a "which way up" note with them.
+
 To change how long before it starts, or how long each photo shows, go to Settings → Photo screen saver. Set "Start after" to 0 to turn the slideshow off.
 
 ## Seasonal decorations

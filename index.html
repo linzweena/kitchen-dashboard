@@ -119,6 +119,9 @@ body.night .ev.past{opacity:.25}
 #saver .fg{object-fit:contain}
 #saver .layer.show .fg{animation:kb-drift var(--photo-secs,20s) ease-out forwards}
 @keyframes kb-drift{from{transform:scale(1)}to{transform:scale(1.05)}}
+#sv-rotate{position:absolute;top:1.2rem;right:1.2rem;z-index:2;width:3.6rem;height:3.6rem;border-radius:50%;border:2px solid rgba(255,255,255,.55);
+  background:rgba(0,0,0,.35);color:#fff;font-size:1.9rem;line-height:1;display:flex;align-items:center;justify-content:center;padding:0;opacity:.75;cursor:pointer}
+#sv-rotate:active{background:rgba(255,255,255,.3)}
 #saver-info{position:absolute;left:0;right:0;bottom:0;padding:3rem 2rem 1.4rem;display:flex;align-items:flex-end;gap:2rem;
   background:linear-gradient(transparent,rgba(0,0,0,.75) 55%);color:#fff;text-shadow:0 1px 4px rgba(0,0,0,.6)}
 #sv-time{font-size:4rem;font-weight:300;line-height:.9;font-variant-numeric:tabular-nums}
@@ -182,6 +185,7 @@ body.night #decor,body.night #decor-head{display:none}
 <div id="saver" hidden>
   <div class="layer"><img class="bg" alt=""><img class="fg" alt=""></div>
   <div class="layer"><img class="bg" alt=""><img class="fg" alt=""></div>
+  <button id="sv-rotate" type="button" aria-label="Turn this photo">↻</button>
   <div id="saver-info"><div><div id="sv-time"></div><div id="sv-date"></div></div><div id="sv-items"></div></div>
 </div>
 
@@ -1032,11 +1036,13 @@ function jpegOrientation(b) {
   }
   return { o: 1 };
 }
+const blobBytes = blob => blob.arrayBuffer ? blob.arrayBuffer() : new Promise((res, rej) => {   // older tablets lack Blob.arrayBuffer
+  const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = rej; fr.readAsArrayBuffer(blob); });
 const loadImg = url => new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = url; });
 async function normalisePhoto(blob) {
   let url = null;
   try {
-    const bytes = new Uint8Array(await blob.arrayBuffer());
+    const bytes = new Uint8Array(await blobBytes(blob));
     const info = jpegOrientation(bytes), o = info.o >= 1 && info.o <= 8 ? info.o : 1;
     if (info.pos) { bytes[info.pos] = info.le ? 1 : 0; bytes[info.pos + 1] = info.le ? 0 : 1; }   // neutralise the note so every browser shows raw pixels
     url = URL.createObjectURL(new Blob([bytes], { type: blob.type || 'image/jpeg' }));
@@ -1054,6 +1060,33 @@ async function normalisePhoto(blob) {
   } catch (e) { return blob; }
   finally { if (url) URL.revokeObjectURL(url); }
 }
+/* manual turns the family has made with the ↻ button, remembered per photo */
+const photoTurns = store.get('kb.photoTurns', {});
+async function turnBlob(blob, quarters) {
+  const q = ((quarters % 4) + 4) % 4; if (!q) return blob;
+  const url = URL.createObjectURL(blob);
+  try {
+    const img = await loadImg(url), w = img.naturalWidth, h = img.naturalHeight;
+    const c = document.createElement('canvas'); c.width = q % 2 ? h : w; c.height = q % 2 ? w : h;
+    const x = c.getContext('2d'); x.translate(c.width / 2, c.height / 2); x.rotate(q * Math.PI / 2); x.drawImage(img, -w / 2, -h / 2);
+    return await new Promise(r => c.toBlob(nb => r(nb || blob), 'image/jpeg', 0.9));
+  } catch (e) { return blob; }
+  finally { URL.revokeObjectURL(url); }
+}
+async function turnCurrentPhoto() {
+  const id = photos.current; if (!id) return;
+  photos.next = Date.now() + Math.max(num(cfg.photoSeconds, 20), 15) * 1000;      // hold this photo while they're turning it
+  photoTurns[id] = ((photoTurns[id] || 0) + 1) % 4; store.set('kb.photoTurns', photoTurns);
+  const cache = await photoCache(); if (!cache) return;
+  const res = await cache.match(photoKey(id)); if (!res) return;
+  const turned = await turnBlob(await res.blob(), 1);
+  await cache.put(photoKey(id), new Response(turned, { headers: { 'Content-Type': 'image/jpeg' } }));
+  if (!photos.active || photos.current !== id) return;
+  const url = URL.createObjectURL(turned); photos.urls.push(url);
+  document.querySelectorAll('#saver .layer')[photos.layer].querySelectorAll('img').forEach(i => i.src = url);
+  while (photos.urls.length > 3) URL.revokeObjectURL(photos.urls.shift());
+}
+
 /* one-off: turn photos saved by the previous version upright, without downloading them again */
 async function migratePhotoCache() {
   try {
@@ -1094,7 +1127,7 @@ async function syncPhotos() {
         if (!p || !p.data) throw new Error(p && p.error || 'no picture returned');
         const bin = atob(p.data), bytes = new Uint8Array(bin.length);
         for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-        const upright = await normalisePhoto(new Blob([bytes], { type: p.mime || 'image/jpeg' }));
+        const upright = await turnBlob(await normalisePhoto(new Blob([bytes], { type: p.mime || 'image/jpeg' })), photoTurns[id] || 0);
         await cache.put(photoKey(id), new Response(upright, { headers: { 'Content-Type': upright.type || 'image/jpeg' } }));
       } catch (e) {
         if (e instanceof TypeError || e.message === 'timed out') throw e;    // offline: stop, try later
@@ -1147,6 +1180,7 @@ async function showNextPhoto() {
     const ok = await new Promise(r => { const im = new Image(); im.onload = () => r(true); im.onerror = () => r(false); im.src = url; });
     if (!ok) { URL.revokeObjectURL(url); continue; }
     if (!photos.active) { URL.revokeObjectURL(url); return; }
+    photos.current = id;
     photos.layer = 1 - photos.layer;
     const layers = document.querySelectorAll('#saver .layer'), on = layers[photos.layer], off = layers[1 - photos.layer];
     on.querySelectorAll('img').forEach(i => i.src = url);
@@ -1192,7 +1226,11 @@ function renderSaverInfo() {
 /* any touch counts as activity; a touch on the slideshow only closes it */
 document.addEventListener('pointerdown', e => {
   photos.lastTouch = Date.now();
-  if (photos.active) { stopSaver(); swallowClick = true; e.stopPropagation(); }
+  if (photos.active) {
+    swallowClick = true; e.stopPropagation();
+    if (e.target.closest && e.target.closest('#sv-rotate')) turnCurrentPhoto();
+    else stopSaver();
+  }
 }, true);
 document.addEventListener('keydown', () => { photos.lastTouch = Date.now(); }, true);
 
