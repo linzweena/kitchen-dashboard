@@ -49,7 +49,8 @@ function calendars_(p) {
           allDay: allDay,
           start: allDay ? day(ev.getAllDayStartDate()) : ev.getStartTime().toISOString(),
           end: allDay ? day(ev.getAllDayEndDate()) : ev.getEndTime().toISOString(),
-          location: ev.getLocation() || ''
+          location: ev.getLocation() || '',
+          color: ev.getColor() || ''
         };
       });
     } catch (err) { /* one unreadable calendar shouldn't break the rest */ }

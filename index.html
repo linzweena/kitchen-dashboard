@@ -55,7 +55,11 @@ main{flex:1;min-height:0;display:grid;gap:var(--gap);
 .ev .loc{display:block;color:var(--faint);font-size:.8rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ev.past{opacity:.38}
 .ev.now .t{color:var(--accent);font-weight:600}
-.ev .who{color:var(--faint);font-size:.75rem;margin-left:.4rem}
+.ev .who{display:inline-block;font-size:.72rem;font-weight:600;line-height:1;padding:.22rem .5rem;border-radius:99px;margin-left:.45rem;vertical-align:.12em;white-space:nowrap}
+.legend{margin-left:auto;display:flex;gap:.7rem;flex-wrap:wrap;justify-content:flex-end;text-transform:none;letter-spacing:0;font-weight:500;font-size:.8rem;color:var(--text)}
+.legend span{display:inline-flex;align-items:center;gap:.3rem}
+.sw{display:inline-block;width:.8rem;height:.8rem;border-radius:50%;flex:none}
+.cal-end{color:var(--faint);font-size:.85rem;padding:.8rem 0 .2rem;text-align:center}
 
 /* meals */
 .meal{display:flex;gap:.8rem;padding:.42rem 0;border-bottom:1px solid var(--line);align-items:baseline}
@@ -163,7 +167,7 @@ body.night #decor,body.night #decor-head{display:none}
   </header>
   <div id="banner" hidden></div>
   <main>
-    <section class="panel" id="p-cal"><h2>Calendar</h2><div class="body" id="cal-body"></div></section>
+    <section class="panel" id="p-cal"><h2>Calendar <span class="legend" id="cal-legend"></span></h2><div class="body" id="cal-body"></div></section>
     <section class="panel" id="p-meals"><h2>Meals</h2><div class="body" id="meals-body"></div></section>
     <section class="panel" id="p-rem"><h2>Reminders <span class="count" id="rem-count"></span></h2><div class="body" id="rem-body"></div></section>
     <section class="panel" id="p-shop">
@@ -209,7 +213,7 @@ const DEFAULTS = {
   calendarScriptUrl: '',            // the Apps Script web app address, ending in /exec
   googleApiKey: '', googleClientId: '', googleClientSecret: '',
   calendars: '',                    // one per line:  calendarId | Label | #colour
-  calendarDays: 7,
+  calendarDays: 30,
   todoistToken: '',
   shoppingProject: 'Shopping',
   mealsProject: 'Meals',
@@ -227,6 +231,17 @@ const DEFAULTS = {
   summerHolidays: '22/07 - 03/09'    // DD/MM - DD/MM
 };
 let cfg = Object.assign({}, DEFAULTS, store.get(K.cfg, {}));
+if (store.get(K.cfg, null) && !(cfg.cfgV >= 2)) {      // one-time upgrade: 7-day calendar → 30 days
+  if (Number(cfg.calendarDays) === 7) cfg.calendarDays = 30;
+  cfg.cfgV = 2; store.set(K.cfg, cfg);
+}
+/* Google Calendar's event colours (as shown in its colour picker), in picker order */
+const GCOLOURS = [['11', 'Tomato', '#d50000'], ['4', 'Flamingo', '#e67c73'], ['6', 'Tangerine', '#f4511e'], ['5', 'Banana', '#f6bf26'],
+  ['2', 'Sage', '#33b679'], ['10', 'Basil', '#0b8043'], ['7', 'Peacock', '#039be5'], ['9', 'Blueberry', '#3f51b5'],
+  ['1', 'Lavender', '#7986cb'], ['3', 'Grape', '#8e24aa'], ['8', 'Graphite', '#616161']];
+const GCOLOUR = {}; GCOLOURS.forEach(c => GCOLOUR[c[0]] = c);
+const inkFor = hex => { const n = parseInt(String(hex).replace('#', '').slice(0, 6), 16); if (isNaN(n)) return '#fff';
+  const r = n >> 16 & 255, g = n >> 8 & 255, b = n & 255; return (0.299 * r + 0.587 * g + 0.114 * b) > 160 ? '#111' : '#fff'; };
 const PALETTE = ['#7cc4ff','#ff9f7c','#9be08a','#d4a5ff','#ffd36b','#6be0d4','#ff8fc2'];
 
 function parseCalendars() {
@@ -542,27 +557,43 @@ const emptyMsg = t => '<div class="empty">' + esc(t) + '</div>';
 function renderCalendar() {
   const el = $('#cal-body');
   const c = state.cache.calendar;
-  if (!c) { el.innerHTML = emptyMsg(SOURCES.calendar.enabled() || state.demo ? 'Loading calendar…' : 'No calendar set up — long-press the clock.'); return; }
+  if (!c) { el.innerHTML = emptyMsg(SOURCES.calendar.enabled() || state.demo ? 'Loading calendar…' : 'No calendar set up — long-press the clock.'); $('#cal-legend').innerHTML = ''; return; }
   const meta = {}, dm = c.data.meta || {};
   Object.keys(dm).forEach((id, i) => meta[id] = { label: dm[id].label, color: dm[id].color || PALETTE[i % PALETTE.length] });
   parseCalendars().forEach(x => meta[x.id] = { label: x.label || (meta[x.id] && meta[x.id].label) || '', color: x.color });
+  const multi = Object.keys(c.data.byCal || {}).length > 1;
+  /* who an event belongs to: its own Google colour (named in settings), else its calendar */
+  const who = e => {
+    if (e.color && GCOLOUR[e.color]) return { color: GCOLOUR[e.color][2], name: String(cfg['colour_' + e.color] || '').trim() };
+    return { color: e.cal.color, name: (multi && e.cal.label) || String(cfg.colour_0 || '').trim() };
+  };
   const now = new Date(), today = startOfDay(now);
   const events = [];
   Object.keys(c.data.byCal || {}).forEach(id => (c.data.byCal[id] || []).forEach(e => {
     const s = e.allDay ? parseYmd(e.start) : new Date(e.start);
     let en = e.end ? (e.allDay ? parseYmd(e.end) : new Date(e.end)) : s;
     if (isNaN(s)) return; if (isNaN(en) || en < s) en = s;
-    events.push(Object.assign({ s, e: en, cal: meta[id] || { color: '#888', label: '' } }, e));
+    const ev = Object.assign({ s, e: en, cal: meta[id] || { color: '#888', label: '' } }, e);
+    ev.who = who(ev); events.push(ev);
   }));
-  const multi = Object.keys(c.data.byCal || {}).length > 1;
-  let html = '';
-  for (let i = 0; i < num(cfg.calendarDays, 7); i++) {
+
+  /* key of who's who, from the names actually in use */
+  const seen = {};
+  events.forEach(e => { if (e.who.name && !seen[e.who.name]) seen[e.who.name] = e.who.color; });
+  $('#cal-legend').innerHTML = Object.keys(seen).map(n => '<span><i class="sw" style="background:' + esc(seen[n]) + '"></i>' + esc(n) + '</span>').join('');
+
+  const days = num(cfg.calendarDays, 30);
+  let html = '', shownLater = 0;
+  for (let i = 0; i < days; i++) {
     const day = addDays(today, i), next = addDays(today, i + 1);
     const evs = events.filter(e => e.s < next && (e.e > day || (+e.e === +e.s && e.s >= day)))
       .sort((a, b) => (b.allDay - a.allDay) || (a.s - b.s) || a.title.localeCompare(b.title));
+    if (!evs.length && i >= 2) continue;               // keep a month readable: skip empty days after tomorrow
+    if (i >= 2) shownLater++;
     const cls = 'day' + (i === 0 ? ' today' : '') + (!evs.length ? ' quiet' : '');
     html += '<div class="' + cls + '"><div class="day-h">' + esc(dayLabel(day)) + (i > 1 ? '' : '<span style="margin-left:auto;font-weight:400">' + esc(day.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' })) + '</span>') + '</div>';
     if (!evs.length && i === 0) html += emptyMsg('Nothing on today');
+    if (!evs.length && i === 1) html += emptyMsg('Nothing on tomorrow');
     evs.forEach(e => {
       let t;
       if (e.allDay) t = (e.e - e.s > 864e5 * 1.5 && dayDiff(e.s) < i) ? 'cont.' : 'All day';
@@ -570,14 +601,17 @@ function renderCalendar() {
       else t = fmtTime(e.s);
       const past = i === 0 && !e.allDay && e.e <= now && +e.e !== +e.s ? ' past' : (i === 0 && !e.allDay && +e.e === +e.s && e.s < now ? ' past' : '');
       const live = i === 0 && !e.allDay && e.s <= now && e.e > now ? ' now' : '';
-      html += '<div class="ev' + past + live + '"><span class="bar" style="background:' + esc(e.cal.color) + '"></span>' +
+      html += '<div class="ev' + past + live + '"><span class="bar" style="background:' + esc(e.who.color) + '"></span>' +
         '<span class="t">' + esc(live ? 'Now' : t) + '</span><span class="n">' + esc(e.title) +
-        (multi && e.cal.label ? '<span class="who">' + esc(e.cal.label) + '</span>' : '') +
+        (e.who.name ? '<span class="who" style="background:' + esc(e.who.color) + ';color:' + inkFor(e.who.color) + '">' + esc(e.who.name) + '</span>' : '') +
         (e.location ? '<span class="loc">' + esc(e.location) + '</span>' : '') + '</span></div>';
     });
     html += '</div>';
   }
+  html += '<div class="cal-end">' + (shownLater ? 'That’s everything for the next ' + days + ' days' : 'Nothing else in the next ' + days + ' days') + '</div>';
+  const top = el.scrollTop;                            // keep the reader's place across refreshes
   el.innerHTML = html;
+  el.scrollTop = top;
 }
 
 /* cached Todoist data + local queue overlay = what the family sees */
@@ -723,7 +757,21 @@ const FIELDS = [
   ['googleClientId', 'OAuth client ID', 'text', 'Type “TVs and Limited Input devices”'],
   ['googleClientSecret', 'OAuth client secret', 'text', ''],
   ['calendars', 'Calendars', 'textarea', 'One per line:  calendar-id | Label | #colour. Leave blank to show all, or tap “List my calendars” and delete the ones you don’t want.', true],
-  ['calendarDays', 'Days to show', 'number', ''],
+  ['calendarDays', 'Days to show', 'number', 'Up to 31'],
+  ['Who’s who (event colours)'],
+  ['note', 'In Google Calendar, give each person’s events their own colour. Then type each person’s name next to their colour below. Leave a box empty if a colour isn’t used.', 'note'],
+  ['colour_11', 'Tomato', 'colour', '#d50000'],
+  ['colour_4', 'Flamingo', 'colour', '#e67c73'],
+  ['colour_6', 'Tangerine', 'colour', '#f4511e'],
+  ['colour_5', 'Banana', 'colour', '#f6bf26'],
+  ['colour_2', 'Sage', 'colour', '#33b679'],
+  ['colour_10', 'Basil', 'colour', '#0b8043'],
+  ['colour_7', 'Peacock', 'colour', '#039be5'],
+  ['colour_9', 'Blueberry', 'colour', '#3f51b5'],
+  ['colour_1', 'Lavender', 'colour', '#7986cb'],
+  ['colour_3', 'Grape', 'colour', '#8e24aa'],
+  ['colour_8', 'Graphite', 'colour', '#616161'],
+  ['colour_0', 'No colour chosen (calendar’s own colour)', 'colour', 'linear-gradient(135deg,#7cc4ff,#9be08a)'],
   ['Todoist'],
   ['todoistToken', 'API token', 'text', 'Todoist → Settings → Integrations → Developer', true],
   ['shoppingProject', 'Shopping project', 'text', 'Sections become aisle headings'],
@@ -756,6 +804,12 @@ function openSettings() {
     if (f[0] === 'decorPreview') {
       h += '<div class="row"><select id="decor-pick">' + Object.keys(THEMES).map(t => '<option value="' + t + '">' + esc(THEMES[t].label) + '</option>').join('') +
         '</select><button type="button" data-s="preview">Preview for 1 minute</button></div>';
+      return;
+    }
+    if (f[2] === 'note') { h += '<small style="grid-column:1/-1;font-size:.85rem;color:var(--muted)">' + esc(f[1]) + '</small>'; return; }
+    if (f[2] === 'colour') {
+      h += '<label><span style="display:flex;gap:.5rem;align-items:center"><i class="sw" style="width:1.1rem;height:1.1rem;background:' + f[3] + '"></i>' + esc(f[1]) + '</span>' +
+        '<input name="' + f[0] + '" value="' + esc(cfg[f[0]] || '') + '" placeholder="Name, e.g. Dad" autocapitalize="words" spellcheck="false"></label>';
       return;
     }
     const [k, label, type, help, wide] = f, v = cfg[k];
@@ -901,6 +955,9 @@ function tick() {
   });
 
   applyDecor();
+
+  // after 2 minutes untouched, scroll every list back to the top (today)
+  if (Date.now() - photos.lastTouch > 120e3) document.querySelectorAll('.body').forEach(b => { if (b.scrollTop) b.scrollTop = 0; });
 
   // photo list: re-check every 6 h, or every 30 min while photos are still downloading
   if (photosEnabled() && !photos.syncing && Date.now() - photos.lastSync > (photos.have.size < photos.list.length ? 30 : 360) * 60e3) syncPhotos();
