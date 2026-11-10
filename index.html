@@ -1044,7 +1044,7 @@ try { if (window.fully && fully.bind) { fully.bind('screenOn', 'refreshAll(2000)
    ===================================================================== */
 const PHOTO_CACHE = 'kb-photos-v2';      // v2: photos stored already turned the right way up
 const photos = { list: store.get('kb.photos', []), have: new Set(), bad: new Set(), lastSync: 0, syncing: false, err: '',
-  active: false, order: [], idx: 0, next: 0, lastTouch: Date.now(), urls: [], layer: 0 };
+  active: false, deck: store.get('kb.photoDeck', []), next: 0, lastTouch: Date.now(), urls: [], layer: 0 };
 const photosEnabled = () => cfg.calendarMode === 'script' && !!String(cfg.calendarScriptUrl || '').trim() && Number(cfg.photoIdleMinutes) > 0;
 const helperUrl = q => { const u = String(cfg.calendarScriptUrl).trim(); return u + (u.includes('?') ? '&' : '?') + q; };
 const photoKey = id => new URL('photo-cache/' + encodeURIComponent(id), location.href).href;
@@ -1189,11 +1189,27 @@ function saverTick(now) {
 }
 
 function startSaver() {
-  photos.order = Array.from(photos.have).sort(() => Math.random() - 0.5);
-  photos.idx = 0; photos.active = true; photos.next = 0;
+  photos.active = true; photos.next = 0;
   document.documentElement.style.setProperty('--photo-secs', num(cfg.photoSeconds, 20) + 's');
   $('#saver').hidden = false;
   renderSaverInfo(); saverTick(new Date());
+}
+
+/* Like a shuffled deck of cards: every photo once, in random order, before any repeats.
+   The deck is remembered, so closing and reopening the slideshow carries on where it was. */
+function shuffle(a) { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const t = a[i]; a[i] = a[j]; a[j] = t; } return a; }
+function nextPhotoId() {
+  let deck = photos.deck.filter(id => photos.have.has(id));                       // drop photos removed from Drive
+  if (!deck.length) {
+    deck = shuffle(Array.from(photos.have));
+    if (deck.length > 1 && deck[0] === photos.current) deck.push(deck.shift());   // never the same photo twice in a row
+  }
+  const fresh = Array.from(photos.have).filter(id => id !== photos.current && !deck.includes(id) && !(photos.shown || new Set()).has(id));
+  fresh.forEach(id => deck.splice(Math.floor(Math.random() * (deck.length + 1)), 0, id));   // newly added photos join this round
+  const id = deck.shift();
+  (photos.shown = photos.shown && deck.length ? photos.shown : new Set()).add(id);
+  photos.deck = deck; store.set('kb.photoDeck', deck);
+  return id;
 }
 
 function stopSaver() {
@@ -1206,10 +1222,9 @@ function stopSaver() {
 
 async function showNextPhoto() {
   photos.next = Date.now() + num(cfg.photoSeconds, 20) * 1000;
-  const cache = await photoCache(); if (!cache || !photos.order.length) return stopSaver();
-  for (let tries = 0; tries < photos.order.length; tries++) {
-    const id = photos.order[photos.idx++ % photos.order.length];
-    if (photos.idx % photos.order.length === 0) photos.order.sort(() => Math.random() - 0.5);
+  const cache = await photoCache(); if (!cache || !photos.have.size) return stopSaver();
+  for (let tries = 0; tries < photos.have.size; tries++) {
+    const id = nextPhotoId();
     const res = await cache.match(photoKey(id));
     if (!res) continue;
     const url = URL.createObjectURL(await res.blob());
