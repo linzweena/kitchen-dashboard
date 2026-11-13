@@ -6,7 +6,7 @@ A wall display for the family kitchen. It is a single page (`index.html`, plus a
 |-----------|------------------------------------------------------|
 | Calendar  | Google Calendar API (one or more calendars)          |
 | Shopping  | A Todoist project. Its sections become aisle headings. |
-| Meals     | A Todoist project. A task's due date is the day of that meal. |
+| Meals     | A Todoist project. A meal's day comes from its due date, a section named after a day ("Monday"), or the day at the start of its name ("Mon: Lasagne"). Undated meals show under "Also planned". |
 | Reminders | Any Todoist filter (default: `#Reminders` items due soon). |
 
 Tap an item to tick it off. You have 4 seconds to tap again and undo. You can also add shopping items from the box under the list.

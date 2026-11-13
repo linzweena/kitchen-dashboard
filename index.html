@@ -208,7 +208,7 @@ body.paused *{animation-play-state:paused!important}
    Settings: long-press the clock for 2 seconds (or open the page with ?settings).
    ===================================================================== */
 
-const BOARD_VERSION = '13 Nov 2026 (b)';
+const BOARD_VERSION = '13 Nov 2026 (c)';
 const $ = s => document.querySelector(s);
 /* Reload with a fresh copy of the page (not the tablet's saved one), so updates always arrive. */
 function freshReload() {
@@ -330,6 +330,10 @@ function ago(t) {
 const toMin = s => { const m = /^(\d{1,2}):(\d{2})$/.exec(String(s || '').trim()); return m ? +m[1] * 60 + +m[2] : null; };
 /* Todoist due: 'YYYY-MM-DD' (all day) or a datetime (floating or UTC) */
 const dueDate = due => due && due.date ? (due.date.length > 10 ? new Date(due.date) : parseYmd(due.date)) : null;
+const WEEKDAYS = { sun: 0, sunday: 0, mon: 1, monday: 1, tue: 2, tues: 2, tuesday: 2, wed: 3, weds: 3, wednesday: 3,
+  thu: 4, thur: 4, thurs: 4, thursday: 4, fri: 5, friday: 5, sat: 6, saturday: 6 };
+const weekdayIn = str => { const w = String(str || '').trim().toLowerCase().replace(/[^a-z]/g, ''); return w in WEEKDAYS ? WEEKDAYS[w] : null; };
+const nextWeekday = dow => { const t = startOfDay(new Date()); return addDays(t, (dow - t.getDay() + 7) % 7); };   // today counts
 const dueHasTime = due => !!(due && due.date && due.date.length > 10);
 
 /* ---------- HTTP with timeout ---------- */
@@ -526,13 +530,14 @@ async function loadTodoist(prev) {
   const shopId = find(cfg.shoppingProject), mealId = find(cfg.mealsProject);
   const errors = [];
   const part = (label, enabled, fn) => !enabled ? Promise.resolve(null) : fn().catch(e => { errors.push(label + ': ' + errMsg(e)); return undefined; });
-  const [shop, sections, meals, rem] = await Promise.all([
+  const [shop, sections, meals, rem, mealSecs] = await Promise.all([
     part('Shopping', shopId, () => tdList('/tasks', { project_id: shopId })),
     part('Aisles', shopId, () => tdList('/sections', { project_id: shopId })),
     part('Meals', mealId, () => tdList('/tasks', { project_id: mealId })),
-    part('Reminders', String(cfg.remindersFilter || '').trim(), () => tdList('/tasks/filter', { query: cfg.remindersFilter }))
+    part('Reminders', String(cfg.remindersFilter || '').trim(), () => tdList('/tasks/filter', { query: cfg.remindersFilter })),
+    part('Meal days', mealId, () => tdList('/sections', { project_id: mealId }))
   ]);
-  if (errors.length === 4 || (errors.length && !prev)) throw new Error(errors.join('; '));   // nothing usable came back
+  if (errors.length >= 4 || (errors.length && !prev)) throw new Error(errors.join('; '));   // nothing usable came back
   const slim = t => ({ id: String(t.id), content: t.content, section: t.section_id || null,
     order: t.child_order != null ? t.child_order : (t.order || 0), parent: t.parent_id || null,
     due: t.due ? { date: t.due.date, recurring: !!t.due.is_recurring } : null });
@@ -541,6 +546,7 @@ async function loadTodoist(prev) {
   if (errors.length) log('todoist partly updated: ' + errors.join('; '));
   return { shopId, shopping: keep(shop, 'shopping', slim), meals: keep(meals, 'meals', slim), reminders: keep(rem, 'reminders', slim),
     sections: keep(sections, 'sections', s => ({ id: s.id, name: s.name, order: s.section_order || s.order || 0 })),
+    mealSections: keep(mealSecs, 'mealSections', s => ({ id: s.id, name: s.name })),
     errors: errors.concat(flushErr ? [queue.length + ' change(s) not yet synced'] : []) };
 }
 
@@ -678,7 +684,7 @@ function todoView() {
   const keep = t => !closed.has(String(t.id));
   const adds = queue.filter(q => q.op === 'add').map(q => ({ id: q.tempId, content: q.content, section: null, order: 1e9 + q.ts, unsynced: true }));
   return { shopping: c.data.shopping.filter(keep).concat(adds), meals: c.data.meals.filter(keep),
-    reminders: c.data.reminders.filter(keep), sections: c.data.sections || [], shopId: c.data.shopId };
+    reminders: c.data.reminders.filter(keep), sections: c.data.sections || [], shopId: c.data.shopId, mealSections: c.data.mealSections || [] };
 }
 
 const pendingDone = new Map();   // id -> timer; 4 s grace period to undo a tap
@@ -708,15 +714,27 @@ function renderTodoist() {
   $('#shop-body').innerHTML = sh || emptyMsg('List is empty 🎉');
   $('#shop-count').textContent = v.shopping.length ? v.shopping.length : '';
 
-  /* meals for the next N days */
+  /* meals for the next N days. A meal's day comes from (in order): its due date, a section named
+     after a day ("Monday"), or a day at the start of its name ("Mon: Lasagne"). Anything else is "Also planned". */
   const today = startOfDay(new Date());
+  const secName = {}; (v.mealSections || []).forEach(x => secName[x.id] = x.name);
+  const mealList = v.meals.map(t => {
+    if (t.due && t.due.date) return { t, day: ymd(dueDate(t.due)), text: t.content };
+    const sd = weekdayIn(secName[t.section] || '');
+    if (sd != null) return { t, day: ymd(nextWeekday(sd)), text: t.content };
+    const m = /^\s*([a-z]+)\s*[:\-–—.]\s*(.+)$/i.exec(t.content), nd = m ? weekdayIn(m[1]) : null;
+    if (nd != null) return { t, day: ymd(nextWeekday(nd)), text: m[2] };
+    return { t, day: null, text: t.content };
+  });
   let mh = '';
   for (let i = 0; i < num(cfg.mealDays, 7); i++) {
     const d = addDays(today, i), key = ymd(d);
-    const ms = v.meals.filter(t => t.due && t.due.date.slice(0, 10) === key).sort((a, b) => (dueDate(a.due) - dueDate(b.due)) || a.order - b.order);
+    const ms = mealList.filter(x => x.day === key).sort((a, b) => ((a.t.due ? dueDate(a.t.due) : 0) - (b.t.due ? dueDate(b.t.due) : 0)) || a.t.order - b.t.order);
     mh += '<div class="meal' + (i === 0 ? ' today' : '') + '"><span class="d">' + esc(i === 0 ? 'Today' : d.toLocaleDateString([], { weekday: 'short' })) + '</span>' +
-      '<span class="m' + (ms.length ? '' : ' none') + '">' + (ms.length ? ms.map(t => esc(t.content)).join('<br>') : '—') + '</span></div>';
+      '<span class="m' + (ms.length ? '' : ' none') + '">' + (ms.length ? ms.map(x => esc(x.text)).join('<br>') : '—') + '</span></div>';
   }
+  const loose = mealList.filter(x => !x.day).sort((a, b) => a.t.order - b.t.order);
+  if (loose.length) mh += '<div class="meal"><span class="d" style="width:auto;min-width:2.8rem">Also</span><span class="m">' + loose.map(x => esc(x.text)).join('<br>') + '</span></div>';
   $('#meals-body').innerHTML = mh;
 
   /* reminders, soonest first */
