@@ -74,9 +74,10 @@ Taps go straight through the decorations, and they switch off at night. In Setti
 
 ## How it keeps running on its own
 - Every dataset is cached on the tablet. When a fetch fails, the board keeps showing the last good data, and the status bar says how old it is.
-- After a failure it retries with backoff (30 s → 1 min → 2 min … up to the normal refresh interval). It refreshes straight away when the network comes back or the screen wakes.
+- After a failure it retries with backoff (30 s → 1 min → 2 min … up to the normal refresh interval). If the network is unreachable, which usually means the Wi-Fi is still reconnecting after the screen wakes, it first retries every 10 seconds a few times. It refreshes straight away when the network comes back or the screen wakes.
+- Shopping, meals and reminders update independently. If one fails, the others still come through, and the failed one keeps its last good copy.
 - Ticks and additions made while offline go into a queue and survive reboots. They sync to Todoist when the connection returns.
-- A watchdog restarts refreshes that stall. The page also reloads itself once a day (03:30 by default) to clear memory, but only if the page can be fetched.
+- A watchdog restarts refreshes that stall. The tablet freezes the page while the screen is dimmed or another app is open; within about 20 seconds of waking, the board notices and catches up. Touching the screen also refreshes any list that's more than a few minutes old. The page also reloads itself once a day (03:30 by default) to clear memory, but only if the page can be fetched.
 - Night mode dims the display. If you're running Fully Kiosk, it also lowers the screen brightness. The first touch at night only wakes the screen; it never ticks anything off.
 - Every 10 minutes the layout shifts a few pixels to prevent screen burn-in.
 - While another app is in front (Netflix, BBC Sounds…), the board pauses its animations, slideshow and redraws so it doesn't slow that app down. Data still refreshes quietly in the background.
