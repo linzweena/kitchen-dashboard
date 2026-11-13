@@ -62,10 +62,15 @@ main{flex:1;min-height:0;display:grid;gap:var(--gap);
 .cal-end{color:var(--faint);font-size:.85rem;padding:.8rem 0 .2rem;text-align:center}
 
 /* meals */
-.meal{display:flex;gap:.8rem;padding:.42rem 0;border-bottom:1px solid var(--line);align-items:baseline}
-.meal:last-child{border-bottom:0}
-.meal .d{width:2.8rem;flex:none;color:var(--muted);font-size:.85rem;font-weight:600;text-transform:uppercase}
-.meal .m{flex:1;font-size:1.05rem}
+.meals{display:grid;grid-template-columns:1fr 1fr;column-gap:1rem}
+.meal{display:flex;gap:.6rem;padding:.4rem 0;border-bottom:1px solid var(--line);align-items:baseline;min-width:0}
+.meal.today,.meal.wide{grid-column:1/-1}
+.meal.wide{border-bottom:0}
+.meal .d{width:2.6rem;flex:none;color:var(--muted);font-size:.8rem;font-weight:600;text-transform:uppercase}
+.meal .m{flex:1;min-width:0;font-size:1rem;line-height:1.25;overflow-wrap:break-word;-webkit-hyphens:auto;hyphens:auto}
+.meal.today .m{font-size:1.1rem}
+/* fade the bottom edge of any list that has more below */
+.body.more{-webkit-mask-image:linear-gradient(to bottom,#000 calc(100% - 2.2rem),transparent);mask-image:linear-gradient(to bottom,#000 calc(100% - 2.2rem),transparent)}
 .meal .m.none{color:var(--faint)}
 .meal.today .d,.meal.today .m{color:var(--accent)}
 
@@ -208,7 +213,7 @@ body.paused *{animation-play-state:paused!important}
    Settings: long-press the clock for 2 seconds (or open the page with ?settings).
    ===================================================================== */
 
-const BOARD_VERSION = '13 Nov 2026 (c)';
+const BOARD_VERSION = '13 Nov 2026 (d)';
 const $ = s => document.querySelector(s);
 /* Reload with a fresh copy of the page (not the tablet's saved one), so updates always arrive. */
 function freshReload() {
@@ -609,9 +614,15 @@ function kickTodoist() { clearTimeout(kickTimer); kickTimer = setTimeout(() => s
 /* =====================================================================
    Rendering
    ===================================================================== */
+function updateMore(el) { if (el) el.classList.toggle('more', el.scrollHeight - el.scrollTop - el.clientHeight > 6); }
+const updateAllMore = () => document.querySelectorAll('.body').forEach(updateMore);
+document.addEventListener('scroll', e => { if (e.target.classList && e.target.classList.contains('body')) updateMore(e.target); }, true);
+window.addEventListener('resize', updateAllMore);
+
 function safeRender(key) {
   const fns = key === 'calendar' ? [renderCalendar] : key === 'todoist' ? [renderTodoist] : [renderCalendar, renderTodoist];
   fns.forEach(fn => { try { fn(); } catch (e) { log('render ' + fn.name + ': ' + e.message); } });
+  updateAllMore();
 }
 const emptyMsg = t => '<div class="empty">' + esc(t) + '</div>';
 
@@ -734,8 +745,8 @@ function renderTodoist() {
       '<span class="m' + (ms.length ? '' : ' none') + '">' + (ms.length ? ms.map(x => esc(x.text)).join('<br>') : '—') + '</span></div>';
   }
   const loose = mealList.filter(x => !x.day).sort((a, b) => a.t.order - b.t.order);
-  if (loose.length) mh += '<div class="meal"><span class="d" style="width:auto;min-width:2.8rem">Also</span><span class="m">' + loose.map(x => esc(x.text)).join('<br>') + '</span></div>';
-  $('#meals-body').innerHTML = mh;
+  if (loose.length) mh += '<div class="meal wide"><span class="d" style="width:auto;min-width:2.6rem">Also</span><span class="m">' + loose.map(x => esc(x.text)).join('<br>') + '</span></div>';
+  $('#meals-body').innerHTML = '<div class="meals">' + mh + '</div>';
 
   /* reminders, soonest first */
   const rem = v.reminders.slice().sort((a, b) => {
@@ -754,6 +765,7 @@ function renderTodoist() {
     return taskHtml(t, '<span class="due' + (over ? ' over' : '') + '">' + esc(label) + (t.due && t.due.recurring ? ' ↻' : '') + '</span>');
   }).join('') : emptyMsg('All clear');
   $('#rem-count').textContent = rem.length ? rem.length : '';
+  setTimeout(updateAllMore, 0);
 }
 
 function renderStatus() {
