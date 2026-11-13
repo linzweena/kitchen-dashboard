@@ -506,7 +506,7 @@ async function flushQueue() {
   }
 }
 
-async function loadTodoist() {
+async function loadTodoist(prev) {
   let flushErr = null;
   try { await flushQueue(); } catch (e) { flushErr = e; }
   const projects = await tdList('/projects');
@@ -517,19 +517,24 @@ async function loadTodoist() {
     return p.id;
   };
   const shopId = find(cfg.shoppingProject), mealId = find(cfg.mealsProject);
+  const errors = [];
+  const part = (label, enabled, fn) => !enabled ? Promise.resolve(null) : fn().catch(e => { errors.push(label + ': ' + errMsg(e)); return undefined; });
   const [shop, sections, meals, rem] = await Promise.all([
-    shopId ? tdList('/tasks', { project_id: shopId }) : [],
-    shopId ? tdList('/sections', { project_id: shopId }) : [],
-    mealId ? tdList('/tasks', { project_id: mealId }) : [],
-    String(cfg.remindersFilter || '').trim() ? tdList('/tasks/filter', { query: cfg.remindersFilter }) : []
+    part('Shopping', shopId, () => tdList('/tasks', { project_id: shopId })),
+    part('Aisles', shopId, () => tdList('/sections', { project_id: shopId })),
+    part('Meals', mealId, () => tdList('/tasks', { project_id: mealId })),
+    part('Reminders', String(cfg.remindersFilter || '').trim(), () => tdList('/tasks/filter', { query: cfg.remindersFilter }))
   ]);
+  if (errors.length === 4 || (errors.length && !prev)) throw new Error(errors.join('; '));   // nothing usable came back
   const slim = t => ({ id: String(t.id), content: t.content, section: t.section_id || null,
     order: t.child_order != null ? t.child_order : (t.order || 0), parent: t.parent_id || null,
     due: t.due ? { date: t.due.date, recurring: !!t.due.is_recurring } : null });
   if (flushErr) log('todoist sync of queued changes failed: ' + errMsg(flushErr));
-  return { shopId, shopping: shop.map(slim), meals: meals.map(slim), reminders: rem.map(slim),
-    sections: sections.map(s => ({ id: s.id, name: s.name, order: s.section_order || s.order || 0 })),
-    errors: flushErr ? [queue.length + ' change(s) not yet synced'] : [] };
+  const keep = (fresh, key, map) => fresh === undefined ? ((prev && prev[key]) || []) : (fresh || []).map(map);   // failed → last good copy
+  if (errors.length) log('todoist partly updated: ' + errors.join('; '));
+  return { shopId, shopping: keep(shop, 'shopping', slim), meals: keep(meals, 'meals', slim), reminders: keep(rem, 'reminders', slim),
+    sections: keep(sections, 'sections', s => ({ id: s.id, name: s.name, order: s.section_order || s.order || 0 })),
+    errors: errors.concat(flushErr ? [queue.length + ' change(s) not yet synced'] : []) };
 }
 
 /* =====================================================================
@@ -549,6 +554,8 @@ Object.keys(SOURCES).forEach(k => {
 });
 
 function schedule(key, delay) {
+  state.due = state.due || {};
+  state.due[key] = Date.now() + Math.max(0, delay);
   clearTimeout(state.timers[key]);
   state.timers[key] = setTimeout(() => run(key), Math.max(0, delay));
 }
@@ -572,6 +579,7 @@ async function run(key) {
     st.failures++; st.lastError = errMsg(e);
     // back off: 30s, 1m, 2m, 4m … capped at the normal refresh interval (min 5 min), with jitter
     next = Math.min(Math.max(refreshMs(), 5 * 60e3), 30e3 * Math.pow(2, st.failures - 1)) * (0.8 + Math.random() * 0.4);
+    if (e instanceof TypeError && st.failures <= 3) next = 10e3;      // usually Wi-Fi still reconnecting after sleep
     log(key + ' failed (' + st.failures + '): ' + st.lastError);
   } finally {
     st.running = false;
@@ -991,7 +999,34 @@ async function safeReload(reason) {
 }
 
 let lastMinute = -1, lastDay = ymd(new Date());
+/* Watchdog: the tablet freezes the page's timers while the screen is dimmed or another app is open.
+   Spot an overdue refresh within ~20 s of waking and run it, giving Wi-Fi a few seconds to come back. */
+let lastWatch = 0, lastTickAt = Date.now();
+function watchdog() {
+  const now = Date.now(), slept = now - lastTickAt > 30e3;
+  lastTickAt = now;
+  if (now - lastWatch < 20e3 && !slept) return;
+  lastWatch = now;
+  if (slept) { renderStatus(); }
+  Object.keys(SOURCES).forEach(k => {
+    const st = state.status[k]; if (!SOURCES[k].enabled() || state.demo) return;
+    if (st.running && now - st.startedAt > 3 * 60e3) { st.running = false; log(k + ' run hung, resetting'); }
+    const due = (state.due && state.due[k]) || 0;
+    if (!st.running && now > due + 30e3) { log(k + ' timer lost, re-arming'); schedule(k, slept ? 4000 : 0); }
+  });
+}
+/* any touch: if the lists are more than a few minutes old, refresh now */
+function refreshIfStale(delay) {
+  Object.keys(SOURCES).forEach(k => {
+    const c = state.cache[k], st = state.status[k];
+    if (!SOURCES[k].enabled() || state.demo || st.running) return;
+    if (!c || Date.now() - c.at > Math.min(refreshMs(), 3 * 60e3)) schedule(k, delay || 0);
+  });
+}
+document.addEventListener('pointerdown', () => refreshIfStale(0), true);
+
 function tick() {
+  try { watchdog(); } catch (e) {}
   const now = new Date();
   if (board.paused) return;           // nothing to draw while another app is in front
   $('#clock').textContent = fmtTime(now);
@@ -1007,12 +1042,6 @@ function tick() {
   // burn-in protection: drift the whole layout a few pixels every 10 minutes
   if (now.getMinutes() % 10 === 0) $('#app').style.transform = 'translate(' + Math.round(Math.random() * 8 - 4) + 'px,' + Math.round(Math.random() * 6 - 3) + 'px)';
 
-  // watchdog: re-arm a source whose timer was lost (e.g. the WebView was paused)
-  Object.keys(SOURCES).forEach(k => {
-    const st = state.status[k]; if (!SOURCES[k].enabled() || state.demo) return;
-    if (st.running && Date.now() - st.startedAt > 3 * 60e3) { st.running = false; log(k + ' run hung, resetting'); }
-    if (!st.running && Date.now() - st.lastAttempt > refreshMs() * 2 + 5 * 60e3) { log(k + ' timer lost, re-arming'); schedule(k, 0); }
-  });
 
   applyDecor();
 
@@ -1370,7 +1399,7 @@ function resumeBoard() {
   board.paused = false;
   document.body.classList.remove('paused');
   decor.current = ''; photos.lastTouch = Date.now();
-  applyDecor(); tick();
+  applyDecor(); tick(); refreshIfStale(3000);
 }
 document.addEventListener('visibilitychange', () => document.visibilityState === 'hidden' ? pauseBoard() : resumeBoard());
 window.addEventListener('blur', pauseBoard);
