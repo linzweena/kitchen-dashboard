@@ -208,7 +208,14 @@ body.paused *{animation-play-state:paused!important}
    Settings: long-press the clock for 2 seconds (or open the page with ?settings).
    ===================================================================== */
 
+const BOARD_VERSION = '13 Nov 2026 (b)';
 const $ = s => document.querySelector(s);
+/* Reload with a fresh copy of the page (not the tablet's saved one), so updates always arrive. */
+function freshReload() {
+  if (location.protocol === 'file:') return location.reload();
+  const u = new URL(location.href); u.searchParams.set('v', Date.now().toString(36));
+  location.replace(u.href);
+}
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -853,7 +860,7 @@ const FIELDS = [
 
 function openSettings() {
   const s = $('#settings');
-  let h = '<div class="sheet"><header><h3>Kitchen Board settings</h3><span class="sp"></span><button data-s="close">Cancel</button><button class="primary" data-s="save">Save &amp; restart</button></header><div class="scroll">';
+  let h = '<div class="sheet"><header><h3>Kitchen Board settings <small style="font-weight:400;color:var(--muted);font-size:.8rem">version ' + esc(BOARD_VERSION) + '</small></h3><span class="sp"></span><button data-s="close">Cancel</button><button class="primary" data-s="save">Save &amp; restart</button></header><div class="scroll">';
   FIELDS.forEach(f => {
     if (f.length === 1) { h += (h.includes('<fieldset') ? '</fieldset>' : '') + '<fieldset><legend>' + esc(f[0]) + '</legend>'; return; }
     if (f[0] === 'decorPreview') {
@@ -895,10 +902,13 @@ function openSettings() {
     '<div id="diag"></div></fieldset></div></div>';
   s.innerHTML = h; s.hidden = false;
   $('#cfgjson').value = JSON.stringify(cfg, null, 1);
-  const lines = Object.keys(SOURCES).map(k => {
+  const lines = ['Board version: ' + BOARD_VERSION].concat(Object.keys(SOURCES).map(k => {
     const st = state.status[k], c = state.cache[k];
     return SOURCES[k].name + ': ' + (SOURCES[k].enabled() ? (c ? 'data from ' + new Date(c.at).toLocaleString() : 'no data yet') + (st.lastError ? ' — ' + st.lastError : '') : 'not configured');
-  });
+  }));
+  const tv = todoView();
+  if (tv) lines.push('Todoist lists: shopping ' + tv.shopping.length + ', meals ' + tv.meals.length + ', reminders ' + tv.reminders.length +
+    ' (projects “' + cfg.shoppingProject + '”, “' + cfg.mealsProject + '”; reminders filter “' + cfg.remindersFilter + '”)');
   lines.push('Photos: ' + (photosEnabled() ? photos.have.size + ' of ' + photos.list.length + ' ready' + (photos.lastSync ? ', checked ' + ago(photos.lastSync) : '') + (photos.err ? ' — ' + photos.err : '') : 'off'));
   lines.push('Queued changes: ' + queue.length, 'Page loaded: ' + new Date(state.bootAt).toLocaleString(), '', 'Recent log:');
   $('#diag').textContent = lines.concat(store.get(K.log, []).slice().reverse()).join('\n');
@@ -917,8 +927,8 @@ $('#settings').addEventListener('click', async e => {
   const b = e.target.closest('[data-s]'); if (!b) return;
   const a = b.dataset.s;
   if (a === 'close') { $('#settings').hidden = true; }
-  if (a === 'save') { store.set(K.cfg, Object.assign({}, cfg, formValues())); location.reload(); }
-  if (a === 'reload') location.reload();
+  if (a === 'save') { store.set(K.cfg, Object.assign({}, cfg, formValues())); freshReload(); }
+  if (a === 'reload') freshReload();
   if (a === 'refresh') { refreshAll(0); $('#settings').hidden = true; }
   if (a === 'preview') { decor.preview = { key: $('#decor-pick').value, name: 'Sam', until: Date.now() + 60e3 }; $('#settings').hidden = true; applyDecor(); return; }
   if (a === 'photos') { b.textContent = 'Fetching…'; await syncPhotos(); b.textContent = photos.err ? 'Failed: ' + photos.err : photos.have.size + ' photos ready'; }
@@ -993,7 +1003,7 @@ async function safeReload(reason) {
   try {
     // goes through the service worker if one is installed, so this also succeeds offline when the shell is cached
     const r = await Promise.race([fetch(location.href.split('#')[0], { cache: 'no-store' }), sleep(8000).then(() => null)]);
-    if (r && r.ok) return location.reload();
+    if (r && r.ok) return freshReload();
   } catch (e) {}
   log('reload skipped, page unreachable');
 }
@@ -1467,6 +1477,7 @@ function loadDemo() {
    Boot
    ===================================================================== */
 (function boot() {
+  try { if (/[?&]v=/.test(location.search)) { const u = new URL(location.href); u.searchParams.delete('v'); history.replaceState(null, '', u.href); } } catch (e) {}
   state.demo = !Object.keys(SOURCES).some(k => SOURCES[k].enabled());
   if (state.demo) loadDemo();
   renderBanner();

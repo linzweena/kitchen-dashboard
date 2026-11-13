@@ -1,6 +1,6 @@
 // Offline shell for the kitchen board. Only same-origin page files are cached;
 // API calls to Google/Todoist are never intercepted (the page caches their data itself).
-const CACHE = 'kitchen-board-shell-v1';
+const CACHE = 'kitchen-board-shell-v2';
 const SHELL = ['./', './index.html'];
 
 self.addEventListener('install', e => {
@@ -22,14 +22,16 @@ self.addEventListener('fetch', e => {
   if (new URL(req.url).origin !== self.location.origin) return;
 
   // Network first (so updates arrive), but give up after 5s and serve the cached copy.
-  const network = fetch(req).then(res => {
-    if (res.ok) { const copy = res.clone(); caches.open(CACHE).then(c => c.put(req, copy)); }
+  // Always ask the server, skipping the browser's own saved copy, so updates arrive straight away.
+  const fresh = req.mode === 'navigate' || /\/(index\.html)?$/.test(new URL(req.url).pathname);
+  const network = fetch(fresh ? new Request(req.url, { cache: 'no-store', credentials: 'same-origin' }) : req).then(res => {
+    if (res.ok) { const copy = res.clone(); const key = new URL(req.url); key.search = ''; caches.open(CACHE).then(c => c.put(key.href, copy)); }
     return res;
   });
   const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000));
   e.respondWith(
     Promise.race([network, timeout]).catch(() =>
-      caches.match(req).then(r => r || caches.match('./index.html')).then(r => r || network)
+      caches.match(req, { ignoreSearch: true }).then(r => r || caches.match('./', { ignoreSearch: true })).then(r => r || network)
     )
   );
 });
